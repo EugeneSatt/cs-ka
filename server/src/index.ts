@@ -482,7 +482,8 @@ function fireHitscan(
   const mapDist = raycastMap(origin, dir, range);
   const hit = raycastPlayers(origin, dir, range, player.id);
 
-  if (!hit || hit.distance >= mapDist) {
+  const HIT_EPS = 0.01;
+  if (!hit || hit.distance - HIT_EPS >= mapDist) {
     return;
   }
 

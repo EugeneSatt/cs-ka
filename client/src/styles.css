@@ -137,6 +137,17 @@ body {
   cursor: pointer;
 }
 
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.overlay .ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
 .overlay button:hover {
   filter: brightness(1.05);
 }

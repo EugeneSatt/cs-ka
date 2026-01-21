@@ -18,6 +18,7 @@ const GROUND_ACCEL = 20;
 const AIR_ACCEL = 8;
 const FRICTION = 8;
 const JUMP_SPEED = 7;
+const STEP_HEIGHT = 0.6;
 
 export function movePlayer(
   state: PhysicsState,
@@ -111,6 +112,15 @@ function moveAxis(pos: Vec3, vel: Vec3, axis: 0 | 1 | 2, dt: number, map: MapDat
   if (!collidesAt(next, map)) {
     return next;
   }
+
+  if (axis !== 1 && vel[axis] !== 0) {
+    const stepUpPos: Vec3 = [pos[0], pos[1] + STEP_HEIGHT, pos[2]];
+    const stepNext: Vec3 = [next[0], next[1] + STEP_HEIGHT, next[2]];
+    if (!collidesAt(stepUpPos, map) && !collidesAt(stepNext, map)) {
+      return stepNext;
+    }
+  }
+
   vel[axis] = 0;
   return pos;
 }

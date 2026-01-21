@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import * as THREE from 'three';
 import type {
   GrenadeSnapshot,
@@ -12,10 +13,12 @@ import type { WeaponSlot, WeaponType } from '../../shared/src/constants';
 import { EYE_HEIGHT, PLAYER_HEIGHT, WEAPON_CONFIG } from '../../shared/src/constants';
 import { clamp, lerp, lerpAngle, vec3Lerp } from '../../shared/src/math';
 import { isOnGround, movePlayer } from '../../shared/src/physics';
+import editorMap from '../../shared/maps/arena.json';
 
 const menu = document.getElementById('menu') as HTMLDivElement;
 const joinButton = document.getElementById('join') as HTMLButtonElement;
 const primarySelect = document.getElementById('primary') as HTMLSelectElement;
+const editorButton = document.getElementById('editor') as HTMLButtonElement;
 
 const hudRound = document.getElementById('round') as HTMLDivElement;
 const hudTimer = document.getElementById('timer') as HTMLDivElement;
@@ -76,8 +79,13 @@ const RECOIL_KICK: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', number> = {
 let socket: WebSocket | null = null;
 let clientId = '';
 let mapData: MapData | null = null;
+let mapGroup: THREE.Group | null = null;
 let latestSnapshot: ServerSnapshot | null = null;
 let serverTimeOffset = 0;
+let inMatch = false;
+let leavingMatch = false;
+let cleanedUp = false;
+let inEditor = false;
 
 const pendingInputs: InputPayload[] = [];
 let inputSeq = 0;
@@ -99,7 +107,40 @@ const grenadeMeshes = new Map<string, THREE.Mesh>();
 
 const snapshotBuffer: Array<{ time: number; players: Map<string, PlayerSnapshot> }> = [];
 
+const editorState = {
+  pos: [0, 6, 0] as Vec3,
+  vel: [0, 0, 0] as Vec3,
+  yaw: 0,
+  pitch: 0,
+  speed: 10,
+};
+
+type EditorSession = {
+  active: boolean;
+  pos: Vec3;
+  yaw: number;
+  pitch: number;
+};
+
+const EDITOR_STORAGE_KEY = 'csvert-editor-session';
+let currentEditorMap: MapData = editorMap as MapData;
+let lastEditorPersist = 0;
+
+if (import.meta.hot) {
+  import.meta.hot.accept('../../shared/maps/arena.json', (mod) => {
+    if (mod?.default) {
+      currentEditorMap = mod.default as MapData;
+      if (inEditor) {
+        mapData = currentEditorMap;
+        buildMap(currentEditorMap);
+      }
+    }
+  });
+}
+
 function connect() {
+  cleanedUp = false;
+  leavingMatch = false;
   const primary = primarySelect.value as WeaponType;
   const serverUrl = new URL(window.location.href).searchParams.get('server');
   const wsUrl = serverUrl ?? `ws://${window.location.hostname}:8080`;
@@ -117,6 +158,7 @@ function connect() {
       clientId = msg.id;
       mapData = msg.map;
       buildMap(msg.map);
+      inMatch = true;
       menu.style.display = 'none';
     }
     if (msg.type === 'snapshot') {
@@ -125,7 +167,7 @@ function connect() {
   });
 
   socket.addEventListener('close', () => {
-    hudStatus.textContent = 'Disconnected.';
+    handleDisconnect(leavingMatch);
   });
 }
 
@@ -133,6 +175,10 @@ joinButton.addEventListener('click', () => {
   if (!socket) {
     connect();
   }
+});
+
+editorButton.addEventListener('click', () => {
+  enterEditor();
 });
 
 renderer.domElement.addEventListener('click', () => {
@@ -151,9 +197,14 @@ document.addEventListener('mousemove', (event) => {
   const maxDelta = 120;
   const dx = clamp(event.movementX, -maxDelta, maxDelta);
   const dy = clamp(event.movementY, -maxDelta, maxDelta);
-  baseYaw -= dx * sensitivity;
-  basePitch -= dy * sensitivity;
-  basePitch = clamp(basePitch, -PITCH_LIMIT, PITCH_LIMIT);
+  if (inEditor) {
+    editorState.yaw -= dx * sensitivity;
+    editorState.pitch = clamp(editorState.pitch - dy * sensitivity, -PITCH_LIMIT, PITCH_LIMIT);
+  } else {
+    baseYaw -= dx * sensitivity;
+    basePitch -= dy * sensitivity;
+    basePitch = clamp(basePitch, -PITCH_LIMIT, PITCH_LIMIT);
+  }
 });
 
 document.addEventListener('mousedown', (event) => {
@@ -169,6 +220,15 @@ document.addEventListener('mouseup', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
+  if (event.code === 'Escape') {
+    if (inEditor) {
+      exitEditor();
+    } else {
+      leaveMatch();
+    }
+    return;
+  }
+
   pressedKeys.add(event.code);
 
   if (event.code === 'Digit1') {
@@ -192,7 +252,182 @@ document.addEventListener('keyup', (event) => {
   pressedKeys.delete(event.code);
 });
 
+function resetHud() {
+  hudRound.textContent = 'Round -';
+  hudTimer.textContent = '00:00';
+  hudScore.textContent = 'A 0 - 0 B';
+  hudHp.textContent = 'HP 100';
+  hudAmmo.textContent = 'Ammo 0';
+  hudGrenades.textContent = 'Grenade 0';
+}
+
+function clearMeshes() {
+  for (const mesh of playerMeshes.values()) {
+    scene.remove(mesh);
+  }
+  playerMeshes.clear();
+
+  for (const mesh of grenadeMeshes.values()) {
+    scene.remove(mesh);
+  }
+  grenadeMeshes.clear();
+
+  if (mapGroup) {
+    scene.remove(mapGroup);
+    mapGroup = null;
+  }
+}
+
+function resetEditorState() {
+  editorState.pos = [0, 6, 0];
+  editorState.vel = [0, 0, 0];
+  editorState.yaw = 0;
+  editorState.pitch = 0;
+}
+
+function saveEditorSession(session: EditorSession) {
+  try {
+    localStorage.setItem(EDITOR_STORAGE_KEY, JSON.stringify(session));
+  } catch {
+    // ignore
+  }
+}
+
+function loadEditorSession(): EditorSession | null {
+  try {
+    const raw = localStorage.getItem(EDITOR_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    return JSON.parse(raw) as EditorSession;
+  } catch {
+    return null;
+  }
+}
+
+function restoreEditorSession() {
+  const saved = loadEditorSession();
+  if (saved?.active) {
+    enterEditor(saved);
+  } else {
+    saveEditorSession({ active: false, pos: editorState.pos, yaw: editorState.yaw, pitch: editorState.pitch });
+  }
+}
+
+function resetPlayState() {
+  clearMeshes();
+}
+
+function resetLocalState() {
+  clientId = '';
+  mapData = null;
+  latestSnapshot = null;
+  serverTimeOffset = 0;
+  snapshotBuffer.length = 0;
+  pendingInputs.length = 0;
+  pressedKeys.clear();
+
+  inputState.forward = 0;
+  inputState.strafe = 0;
+  inputState.jump = false;
+  inputState.shoot = false;
+  inputState.reload = false;
+  inputState.throwGrenade = false;
+
+  localState.pos = [0, 0.1, 0];
+  localState.vel = [0, 0, 0];
+  localState.onGround = false;
+  localState.hp = 100;
+  localState.alive = false;
+  localState.weapon = 'primary';
+  localState.primary = primarySelect.value as WeaponType;
+  localState.ammo.primary = WEAPON_CONFIG[localState.primary].magSize;
+  localState.ammo.pistol = WEAPON_CONFIG.pistol.magSize;
+  localState.grenades = 1;
+
+  currentWeapon = 'primary';
+  pointerLocked = false;
+  baseYaw = 0;
+  basePitch = 0;
+  recoilPitch = 0;
+  lastRecoilTime = 0;
+  inputSeq = 0;
+  document.exitPointerLock();
+}
+
+function handleDisconnect(userInitiated: boolean) {
+  if (cleanedUp) {
+    return;
+  }
+  cleanedUp = true;
+  inMatch = false;
+  inEditor = false;
+  socket = null;
+  resetPlayState();
+  resetLocalState();
+  resetHud();
+  hudStatus.textContent = userInitiated ? 'Returned to menu.' : 'Disconnected.';
+  menu.style.display = 'flex';
+  leavingMatch = false;
+}
+
+function leaveMatch() {
+  if (!inMatch && !socket) {
+    menu.style.display = 'flex';
+    return;
+  }
+  leavingMatch = true;
+  socket?.close();
+  handleDisconnect(true);
+}
+
+function enterEditor(saved?: EditorSession) {
+  if (socket) {
+    socket.close();
+    handleDisconnect(true);
+  }
+  clearMeshes();
+  inEditor = true;
+  cleanedUp = false;
+  if (saved) {
+    editorState.pos = [...saved.pos];
+    editorState.yaw = saved.yaw;
+    editorState.pitch = saved.pitch;
+  } else {
+    resetEditorState();
+  }
+  hudStatus.textContent = 'Editor: WASD move, Space up, Shift/Ctrl down, Esc to exit.';
+  menu.style.display = 'none';
+  mapData = currentEditorMap;
+  buildMap(mapData);
+  saveEditorSession({
+    active: true,
+    pos: editorState.pos,
+    yaw: editorState.yaw,
+    pitch: editorState.pitch,
+  });
+}
+
+function exitEditor() {
+  inEditor = false;
+  pointerLocked = false;
+  document.exitPointerLock();
+  resetEditorState();
+  clearMeshes();
+  mapData = null;
+  resetHud();
+  hudStatus.textContent = 'Editor closed.';
+  menu.style.display = 'flex';
+  saveEditorSession({ active: false, pos: editorState.pos, yaw: editorState.yaw, pitch: editorState.pitch });
+}
+
+resetHud();
+restoreEditorSession();
+
 function buildMap(map: MapData) {
+  if (mapGroup) {
+    scene.remove(mapGroup);
+  }
   const group = new THREE.Group();
   for (const box of map.boxes) {
     const size = new THREE.Vector3(
@@ -211,6 +446,7 @@ function buildMap(map: MapData) {
     group.add(mesh);
   }
   scene.add(group);
+  mapGroup = group;
 }
 
 function handleSnapshot(snapshot: ServerSnapshot) {
@@ -374,6 +610,69 @@ function updateInputState() {
   inputState.jump = pressedKeys.has('Space');
 }
 
+function updateEditorMovement(dt: number) {
+  let forward = 0;
+  let strafe = 0;
+  if (pressedKeys.has('KeyW')) {
+    forward += 1;
+  }
+  if (pressedKeys.has('KeyS')) {
+    forward -= 1;
+  }
+  if (pressedKeys.has('KeyD')) {
+    strafe += 1;
+  }
+  if (pressedKeys.has('KeyA')) {
+    strafe -= 1;
+  }
+
+  const up = pressedKeys.has('Space') || pressedKeys.has('KeyE') ? 1 : 0;
+  const down =
+    pressedKeys.has('ShiftLeft') ||
+    pressedKeys.has('ShiftRight') ||
+    pressedKeys.has('ControlLeft') ||
+    pressedKeys.has('ControlRight') ||
+    pressedKeys.has('KeyQ')
+      ? 1
+      : 0;
+
+  const forwardVec: Vec3 = [-Math.sin(editorState.yaw), 0, -Math.cos(editorState.yaw)];
+  const rightVec: Vec3 = [Math.cos(editorState.yaw), 0, -Math.sin(editorState.yaw)];
+  const move: Vec3 = [
+    forwardVec[0] * forward + rightVec[0] * strafe,
+    up - down,
+    forwardVec[2] * forward + rightVec[2] * strafe,
+  ];
+
+  const len = Math.hypot(move[0], move[1], move[2]);
+  if (len > 0) {
+    move[0] /= len;
+    move[1] /= len;
+    move[2] /= len;
+  }
+
+  const speed = editorState.speed;
+  editorState.pos[0] += move[0] * speed * dt;
+  editorState.pos[1] += move[1] * speed * dt;
+  editorState.pos[2] += move[2] * speed * dt;
+}
+
+function persistEditorSession(nowMs: number) {
+  if (!inEditor) {
+    return;
+  }
+  if (nowMs - lastEditorPersist < 200) {
+    return;
+  }
+  lastEditorPersist = nowMs;
+  saveEditorSession({
+    active: true,
+    pos: [...editorState.pos],
+    yaw: editorState.yaw,
+    pitch: editorState.pitch,
+  });
+}
+
 function updateRecoil(dt: number) {
   const t = clamp(RECOIL_RETURN_SPEED * dt, 0, 1);
   recoilPitch = lerp(recoilPitch, 0, t);
@@ -414,6 +713,11 @@ function getViewAngles(): { yaw: number; pitch: number } {
 }
 
 function sendInput(dt: number) {
+  if (inEditor) {
+    inputState.reload = false;
+    inputState.throwGrenade = false;
+    return;
+  }
   if (!socket || socket.readyState !== WebSocket.OPEN || !mapData) {
     inputState.reload = false;
     inputState.throwGrenade = false;
@@ -459,6 +763,16 @@ function render() {
   const now = performance.now();
   const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
   lastFrameTime = now;
+
+  if (inEditor) {
+    updateEditorMovement(dt);
+    camera.position.set(editorState.pos[0], editorState.pos[1], editorState.pos[2]);
+    camera.rotation.y = editorState.yaw;
+    camera.rotation.x = editorState.pitch;
+    persistEditorSession(now);
+    renderer.render(scene, camera);
+    return;
+  }
 
   updateInputState();
   updateRecoil(dt);

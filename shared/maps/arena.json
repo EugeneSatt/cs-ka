@@ -1,27 +1,42 @@
 {
-  "name": "Arena",
+  "name": "Office_2F_SketchExact_v2",
+  "meta": {
+    "units": "meters-ish",
+    "notes": [
+      "Box-based layout matching the latest hand sketch (doors=plus circles, stairs=X squares, shaded=solid blocks).",
+      "2 floors: F1 (y=0..3), F2 (y=3.3..6.3).",
+      "If you provide 1 real-world reference (any corridor width), we can scale to true meters."
+    ]
+  },
+  "params": {
+    "wallThickness": 0.25,
+    "floorThickness": 0.3,
+    "ceilHeight": 3.0,
+    "floorGap": 0.3
+  },
+
   "boxes": [
-    { "min": [-20, -1, -20], "max": [20, 0, 20], "color": "#ffffff" },
-    { "min": [-20, 0, -20], "max": [-19, 4, 20], "color": "#ffffff" },
-    { "min": [19, 0, -20], "max": [20, 4, 20], "color": "#ffffff" },
-    { "min": [-20, 0, -20], "max": [20, 4, -19], "color": "#ffffff" },
-    { "min": [-20, 0, 19], "max": [20, 4, 20], "color": "#ffffff" },
-    { "min": [-2, 0, -2], "max": [2, 2.5, 2], "color": "#ffffff" },
-    { "min": [-10, 0, 6], "max": [-5, 2, 10], "color": "#ffffff" },
-    { "min": [5, 0, -10], "max": [10, 2, -6], "color": "#ffffff" },
-    { "min": [-12, 0, -8], "max": [-8, 3, -4], "color": "#ffffff" },
-    { "min": [8, 0, 4], "max": [12, 3, 8], "color": "#ffffff" }
+     { "min": [-22, -0.3, -15], "max": [34, 0, 15], "color": "#eaeaea", "type": "floor" },
+
+    { "min": [-22, 0, -15], "max": [-21.75, 4.0, 15], "color": "#00A59C", "type": "wall" },
+    { "min": [33.75, 0, -15], "max": [34, 4.0, 15], "color": "#00A59C", "type": "wall" },
+    { "min": [-22, 0, -15], "max": [34, 4.0, -14.75], "color": "#1164B4", "type": "wall" },
+    { "min": [-22, 0, 14.75], "max": [34, 4.0, 15], "color": "#ffffff", "type": "wall" },
+
+    { "min": [-22, 0, 14.75], "max": [14, 4.0, 10], "color": "#00FFFF", "type": "wall" }
+
+
   ],
+
   "spawns": {
     "T": [
-      [-14, 0.1, -14],
-      [-12, 0.1, -14],
-      [-14, 0.1, -12]
+      [-19.5, 0.1, 12.5],
+      [-18.0, 0.1, 12.0],
+      [-19.0, 0.1, 11.0]
     ],
     "CT": [
-      [14, 0.1, 14],
-      [12, 0.1, 14],
-      [14, 0.1, 12]
+      [19.0, 0.1, -12.5],
+      [18.0, 0.1, -12.0],
+      [19.5, 0.1, -11.0]
     ]
-  }
-}
+  }}
