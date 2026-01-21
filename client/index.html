@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CS Vert</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="menu" class="overlay">
+      <h1>CS Vert</h1>
+      <label for="primary">Primary weapon</label>
+      <select id="primary">
+        <option value="rifle">Rifle</option>
+        <option value="sniper">Sniper</option>
+        <option value="shotgun">Shotgun</option>
+      </select>
+      <button id="join">Join Match</button>
+      <div class="hint">Click in the scene to lock pointer.</div>
+    </div>
+
+    <div id="hud">
+      <div id="top">
+        <div id="round">Round 1/8</div>
+        <div id="timer">00:00</div>
+        <div id="score">A 0 - 0 B</div>
+      </div>
+      <div id="bottom">
+        <div id="hp">HP 100</div>
+        <div id="ammo">Ammo 0</div>
+        <div id="grenades">Grenade 1</div>
+      </div>
+      <div id="status"></div>
+    </div>
+
+    <div id="crosshair"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

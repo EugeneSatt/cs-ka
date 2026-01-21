@@ -1,0 +1,159 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap');
+
+:root {
+  --bg: #0c1014;
+  --panel: rgba(10, 12, 15, 0.72);
+  --accent: #f39c4a;
+  --cool: #4aa3f3;
+  --text: #e6e6e6;
+  --muted: #9aa0a6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: "Space Grotesk", sans-serif;
+  background: radial-gradient(circle at 20% 20%, #1c242c, var(--bg));
+  color: var(--text);
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+#top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+}
+
+#bottom {
+  display: flex;
+  gap: 16px;
+  font-weight: 600;
+}
+
+#round,
+#timer,
+#score,
+#hp,
+#ammo,
+#grenades {
+  background: var(--panel);
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+
+#status {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+#crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+#crosshair::before,
+#crosshair::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+#crosshair::before {
+  width: 2px;
+  height: 18px;
+  left: 8px;
+  top: 0;
+}
+
+#crosshair::after {
+  width: 18px;
+  height: 2px;
+  left: 0;
+  top: 8px;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 10, 12, 0.85);
+  backdrop-filter: blur(6px);
+  z-index: 10;
+}
+
+.overlay h1 {
+  margin: 0 0 8px 0;
+  font-size: 36px;
+  letter-spacing: 0.12em;
+}
+
+.overlay label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.overlay select,
+.overlay button {
+  font-family: inherit;
+  font-size: 16px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.overlay button {
+  background: var(--accent);
+  color: #0b0e11;
+  border: none;
+  cursor: pointer;
+}
+
+.overlay button:hover {
+  filter: brightness(1.05);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+canvas {
+  display: block;
+}
+
+@media (max-width: 700px) {
+  #top,
+  #bottom {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
