@@ -9,16 +9,30 @@ import type {
   ServerSnapshot,
   Vec3,
 } from '../../shared/src/types';
-import type { WeaponSlot, WeaponType } from '../../shared/src/constants';
-import { EYE_HEIGHT, PLAYER_HEIGHT, WEAPON_CONFIG } from '../../shared/src/constants';
+import type { Side, WeaponSlot, WeaponType } from '../../shared/src/constants';
+import {
+  BUY_WINDOW,
+  CROUCH_EYE_HEIGHT,
+  EYE_HEIGHT,
+  FREEZE_TIME,
+  PLAYER_HEIGHT,
+  ROUND_TIME,
+  TOTAL_ROUNDS,
+  WEAPON_CONFIG,
+} from '../../shared/src/constants';
 import { clamp, lerp, lerpAngle, vec3Lerp } from '../../shared/src/math';
 import { isOnGround, movePlayer } from '../../shared/src/physics';
 import editorMap from '../../shared/maps/arena.json';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+const BASE_FOV = 75;
+const SCOPE_FOV = 32;
 
 const menu = document.getElementById('menu') as HTMLDivElement;
 const joinButton = document.getElementById('join') as HTMLButtonElement;
 const primarySelect = document.getElementById('primary') as HTMLSelectElement;
 const editorButton = document.getElementById('editor') as HTMLButtonElement;
+const sideSelect = document.getElementById('side') as HTMLSelectElement;
 
 const hudRound = document.getElementById('round') as HTMLDivElement;
 const hudTimer = document.getElementById('timer') as HTMLDivElement;
@@ -27,6 +41,7 @@ const hudHp = document.getElementById('hp') as HTMLDivElement;
 const hudAmmo = document.getElementById('ammo') as HTMLDivElement;
 const hudGrenades = document.getElementById('grenades') as HTMLDivElement;
 const hudStatus = document.getElementById('status') as HTMLDivElement;
+const buyMenu = document.getElementById('buy-menu') as HTMLDivElement;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -35,8 +50,12 @@ renderer.setClearColor(0x0c1014);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.rotation.order = 'YXZ';
+const textureLoader = new THREE.TextureLoader();
+const textureCache = new Map<string, THREE.Texture>();
+const gltfLoader = new GLTFLoader();
+const gltfCache = new Map<string, Promise<THREE.Group>>();
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x1c1f22, 0.6));
 const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -53,6 +72,7 @@ const inputState = {
   forward: 0,
   strafe: 0,
   jump: false,
+  crouch: false,
   shoot: false,
   reload: false,
   throwGrenade: false,
@@ -65,6 +85,8 @@ let baseYaw = 0;
 let basePitch = 0;
 let recoilPitch = 0;
 let lastRecoilTime = 0;
+let scopeHeld = false;
+let scoped = false;
 
 const PITCH_LIMIT = 1.5;
 const RECOIL_RETURN_SPEED = 14;
@@ -100,6 +122,7 @@ const localState = {
   primary: 'rifle' as WeaponType,
   ammo: { primary: 30, pistol: 12 },
   grenades: 1,
+  crouching: false,
 };
 
 const playerMeshes = new Map<string, THREE.Group>();
@@ -114,6 +137,8 @@ const editorState = {
   pitch: 0,
   speed: 10,
 };
+
+let buyOpen = false;
 
 type EditorSession = {
   active: boolean;
@@ -148,7 +173,7 @@ function connect() {
   socket = new WebSocket(wsUrl);
 
   socket.addEventListener('open', () => {
-    const join = { type: 'join', primary };
+    const join = { type: 'join', primary, preferredSide: sideSelect.value as Side };
     socket?.send(JSON.stringify(join));
   });
 
@@ -181,7 +206,17 @@ editorButton.addEventListener('click', () => {
   enterEditor();
 });
 
+buyMenu.querySelectorAll('button[data-primary]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const value = (btn as HTMLButtonElement).dataset.primary as WeaponType;
+    chooseBuy(value);
+  });
+});
+
 renderer.domElement.addEventListener('click', () => {
+  if (buyOpen) {
+    return;
+  }
   renderer.domElement.requestPointerLock();
 });
 
@@ -211,12 +246,22 @@ document.addEventListener('mousedown', (event) => {
   if (event.button === 0) {
     inputState.shoot = true;
   }
+  if (event.button === 2) {
+    scopeHeld = true;
+  }
 });
 
 document.addEventListener('mouseup', (event) => {
   if (event.button === 0) {
     inputState.shoot = false;
   }
+  if (event.button === 2) {
+    scopeHeld = false;
+  }
+});
+
+document.addEventListener('contextmenu', (event) => {
+  event.preventDefault();
 });
 
 document.addEventListener('keydown', (event) => {
@@ -229,16 +274,41 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  if (event.code === 'KeyB') {
+    if (!inEditor && canOpenBuy()) {
+      toggleBuyMenu();
+    }
+    return;
+  }
+
+  if (buyOpen) {
+    if (event.code === 'Digit1') {
+      chooseBuy('rifle');
+      return;
+    }
+    if (event.code === 'Digit2') {
+      chooseBuy('sniper');
+      return;
+    }
+    if (event.code === 'Digit3') {
+      chooseBuy('shotgun');
+      return;
+    }
+  }
+
   pressedKeys.add(event.code);
 
   if (event.code === 'Digit1') {
     currentWeapon = 'primary';
+    scopeHeld = false;
   }
   if (event.code === 'Digit2') {
     currentWeapon = 'pistol';
+    scopeHeld = false;
   }
   if (event.code === 'Digit3') {
     currentWeapon = 'grenade';
+    scopeHeld = false;
   }
   if (event.code === 'KeyR') {
     inputState.reload = true;
@@ -259,6 +329,7 @@ function resetHud() {
   hudHp.textContent = 'HP 100';
   hudAmmo.textContent = 'Ammo 0';
   hudGrenades.textContent = 'Grenade 0';
+  buyMenu.classList.add('hidden');
 }
 
 function clearMeshes() {
@@ -318,6 +389,84 @@ function resetPlayState() {
   clearMeshes();
 }
 
+function getTexture(path: string): THREE.Texture {
+  let tex = textureCache.get(path);
+  if (!tex) {
+    tex = textureLoader.load(path);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy?.() ?? 1;
+    textureCache.set(path, tex);
+  }
+  return tex;
+}
+
+function getModel(path: string): Promise<THREE.Group> {
+  let promise = gltfCache.get(path);
+  if (!promise) {
+    promise = gltfLoader.loadAsync(path).then((gltf) => gltf.scene);
+    gltfCache.set(path, promise);
+  }
+  return promise;
+}
+
+function roundElapsedSeconds(): number {
+  if (!latestSnapshot) {
+    return Infinity;
+  }
+  const state = latestSnapshot.round;
+  if (state.phase === 'freeze') {
+    return Math.max(0, FREEZE_TIME - state.freezeLeft);
+  }
+  if (state.phase === 'live') {
+    return FREEZE_TIME + Math.max(0, ROUND_TIME - state.timeLeft);
+  }
+  return Infinity;
+}
+
+function canOpenBuy(): boolean {
+  if (!latestSnapshot || inEditor) {
+    return false;
+  }
+  if (!localState.alive) {
+    return false;
+  }
+  if (latestSnapshot.round.phase === 'match_over' || latestSnapshot.round.phase === 'post') {
+    return false;
+  }
+  return roundElapsedSeconds() <= BUY_WINDOW;
+}
+
+function toggleBuyMenu(forceClose = false) {
+  if (forceClose || !canOpenBuy()) {
+    buyOpen = false;
+  } else {
+    buyOpen = !buyOpen;
+  }
+  buyMenu.classList.toggle('hidden', !buyOpen);
+}
+
+function closeBuyMenu() {
+  buyOpen = false;
+  buyMenu.classList.add('hidden');
+}
+
+function sendBuy(primary: WeaponType) {
+  if (!socket || socket.readyState !== WebSocket.OPEN || !canOpenBuy()) {
+    return;
+  }
+  socket.send(JSON.stringify({ type: 'buy', primary }));
+  hudStatus.textContent = `Закуплено: ${primary}`;
+}
+
+function chooseBuy(primary: WeaponType) {
+  sendBuy(primary);
+  localState.primary = primary;
+  localState.weapon = 'primary';
+  localState.ammo.primary = WEAPON_CONFIG[primary].magSize;
+  closeBuyMenu();
+}
+
 function resetLocalState() {
   clientId = '';
   mapData = null;
@@ -344,6 +493,7 @@ function resetLocalState() {
   localState.ammo.primary = WEAPON_CONFIG[localState.primary].magSize;
   localState.ammo.pistol = WEAPON_CONFIG.pistol.magSize;
   localState.grenades = 1;
+  localState.crouching = false;
 
   currentWeapon = 'primary';
   pointerLocked = false;
@@ -353,6 +503,10 @@ function resetLocalState() {
   lastRecoilTime = 0;
   inputSeq = 0;
   document.exitPointerLock();
+  buyOpen = false;
+  scopeHeld = false;
+  scoped = false;
+  updateScope(true);
 }
 
 function handleDisconnect(userInitiated: boolean) {
@@ -369,6 +523,7 @@ function handleDisconnect(userInitiated: boolean) {
   hudStatus.textContent = userInitiated ? 'Returned to menu.' : 'Disconnected.';
   menu.style.display = 'flex';
   leavingMatch = false;
+  closeBuyMenu();
 }
 
 function leaveMatch() {
@@ -389,6 +544,8 @@ function enterEditor(saved?: EditorSession) {
   clearMeshes();
   inEditor = true;
   cleanedUp = false;
+  closeBuyMenu();
+  updateScope(true);
   if (saved) {
     editorState.pos = [...saved.pos];
     editorState.yaw = saved.yaw;
@@ -419,6 +576,8 @@ function exitEditor() {
   hudStatus.textContent = 'Editor closed.';
   menu.style.display = 'flex';
   saveEditorSession({ active: false, pos: editorState.pos, yaw: editorState.yaw, pitch: editorState.pitch });
+  closeBuyMenu();
+  updateScope(true);
 }
 
 resetHud();
@@ -436,7 +595,15 @@ function buildMap(map: MapData) {
       box.max[2] - box.min[2]
     );
     const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
-    const material = new THREE.MeshStandardMaterial({ color: box.color ?? '#ffffff' });
+    const materialParams: THREE.MeshStandardMaterialParameters = { color: box.color ?? '#ffffff' };
+    if (box.texture) {
+      const baseTex = getTexture(box.texture);
+      const tex = baseTex.clone();
+      tex.repeat.set(Math.max(1, size.x / 4), Math.max(1, size.z / 4));
+      materialParams.map = tex;
+      materialParams.color = 0xffffff;
+    }
+    const material = new THREE.MeshStandardMaterial(materialParams);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(
       (box.min[0] + box.max[0]) * 0.5,
@@ -444,6 +611,28 @@ function buildMap(map: MapData) {
       (box.min[2] + box.max[2]) * 0.5
     );
     group.add(mesh);
+  }
+  if (map.models) {
+    for (const model of map.models) {
+      getModel(model.path).then((prefab) => {
+        if (mapGroup !== group) {
+          return;
+        }
+        const instance = prefab.clone(true);
+        instance.position.set(model.pos[0], model.pos[1], model.pos[2]);
+        if (model.rot) {
+          instance.rotation.set(model.rot[0], model.rot[1], model.rot[2]);
+        }
+        if (model.scale !== undefined) {
+          if (typeof model.scale === 'number') {
+            instance.scale.setScalar(model.scale);
+          } else {
+            instance.scale.set(model.scale[0], model.scale[1], model.scale[2]);
+          }
+        }
+        group.add(instance);
+      });
+    }
   }
   scene.add(group);
   mapGroup = group;
@@ -474,6 +663,7 @@ function handleSnapshot(snapshot: ServerSnapshot) {
     localState.primary = me.primary;
     localState.ammo = { ...me.ammo };
     localState.grenades = me.grenades;
+    localState.crouching = me.crouching;
 
     localState.pos = [...me.pos];
     localState.vel = [...me.vel];
@@ -550,11 +740,17 @@ function updateGrenadeMeshes(grenades: GrenadeSnapshot[]) {
 }
 
 function updateHud(snapshot: ServerSnapshot) {
-  hudRound.textContent = `Round ${snapshot.round.round}/8 (${snapshot.round.phase})`;
+  const phase = snapshot.round.phase;
+  hudRound.textContent = `Round ${snapshot.round.round}/${TOTAL_ROUNDS} (${phase})`;
 
-  const timeLeft = snapshot.round.phase === 'freeze' ? snapshot.round.freezeLeft : snapshot.round.timeLeft;
-  const minutes = Math.max(0, Math.floor(timeLeft / 60));
-  const seconds = Math.max(0, Math.floor(timeLeft % 60));
+  const phaseTime =
+    phase === 'freeze'
+      ? snapshot.round.freezeLeft
+      : phase === 'post'
+      ? snapshot.round.postLeft ?? 0
+      : snapshot.round.timeLeft;
+  const minutes = Math.max(0, Math.floor(phaseTime / 60));
+  const seconds = Math.max(0, Math.floor(phaseTime % 60));
   hudTimer.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
   hudScore.textContent = `A ${snapshot.round.scores.A} (${snapshot.round.sideByTeam.A}) - (${snapshot.round.sideByTeam.B}) ${snapshot.round.scores.B} B`;
@@ -563,6 +759,9 @@ function updateHud(snapshot: ServerSnapshot) {
   const ammoValue = localState.weapon === 'pistol' ? localState.ammo.pistol : localState.ammo.primary;
   hudAmmo.textContent = `Ammo ${ammoValue}`;
   hudGrenades.textContent = `Grenade ${localState.grenades}`;
+  if (phase === 'post' && snapshot.round.postReason === 'draw') {
+    hudStatus.textContent = 'Ничья';
+  }
 }
 
 function handleEvents(events: ServerSnapshot['events']) {
@@ -572,6 +771,9 @@ function handleEvents(events: ServerSnapshot['events']) {
     }
     if (event.type === 'round_start') {
       hudStatus.textContent = `Round ${event.round} start.`;
+    }
+    if (event.type === 'round_draw') {
+      hudStatus.textContent = 'Ничья';
     }
   }
 }
@@ -608,6 +810,11 @@ function updateInputState() {
     inputState.strafe -= 1;
   }
   inputState.jump = pressedKeys.has('Space');
+  inputState.crouch =
+    pressedKeys.has('ControlLeft') ||
+    pressedKeys.has('ControlRight') ||
+    pressedKeys.has('ShiftLeft') ||
+    pressedKeys.has('ShiftRight');
 }
 
 function updateEditorMovement(dt: number) {
@@ -678,8 +885,28 @@ function updateRecoil(dt: number) {
   recoilPitch = lerp(recoilPitch, 0, t);
 }
 
+function updateScope(forceOff = false) {
+  if (forceOff) {
+    scopeHeld = false;
+  }
+  const allow =
+    scopeHeld &&
+    pointerLocked &&
+    !inEditor &&
+    localState.alive &&
+    currentWeapon === 'primary' &&
+    localState.primary === 'sniper' &&
+    latestSnapshot?.round.phase === 'live';
+  const targetFov = allow ? SCOPE_FOV : BASE_FOV;
+  if (Math.abs(camera.fov - targetFov) > 0.1) {
+    camera.fov = targetFov;
+    camera.updateProjectionMatrix();
+  }
+  scoped = allow;
+}
+
 function applyRecoil(nowSeconds: number) {
-  if (!pointerLocked || !inputState.shoot) {
+  if (inEditor || !pointerLocked || !inputState.shoot) {
     return;
   }
   if (!localState.alive || latestSnapshot?.round.phase !== 'live') {
@@ -718,6 +945,12 @@ function sendInput(dt: number) {
     inputState.throwGrenade = false;
     return;
   }
+  const phase = latestSnapshot?.round.phase;
+  if (phase === 'post' || phase === 'match_over') {
+    inputState.reload = false;
+    inputState.throwGrenade = false;
+    return;
+  }
   if (!socket || socket.readyState !== WebSocket.OPEN || !mapData) {
     inputState.reload = false;
     inputState.throwGrenade = false;
@@ -732,6 +965,7 @@ function sendInput(dt: number) {
     yaw: view.yaw,
     pitch: view.pitch,
     jump: inputState.jump,
+    crouch: inputState.crouch,
     shoot: pointerLocked && inputState.shoot,
     weapon: currentWeapon,
     reload: inputState.reload,
@@ -744,7 +978,7 @@ function sendInput(dt: number) {
   if (mapData && localState.alive && latestSnapshot?.round.phase === 'live') {
     const moved = movePlayer(
       { pos: localState.pos, vel: localState.vel, onGround: localState.onGround },
-      { f: payload.move.f, s: payload.move.s, jump: payload.jump },
+      { f: payload.move.f, s: payload.move.s, jump: payload.jump, crouch: payload.crouch },
       payload.yaw,
       payload.dt,
       mapData
@@ -752,6 +986,7 @@ function sendInput(dt: number) {
     localState.pos = moved.pos;
     localState.vel = moved.vel;
     localState.onGround = moved.onGround;
+    localState.crouching = payload.crouch;
   }
 
   inputState.reload = false;
@@ -769,6 +1004,10 @@ function render() {
     camera.position.set(editorState.pos[0], editorState.pos[1], editorState.pos[2]);
     camera.rotation.y = editorState.yaw;
     camera.rotation.x = editorState.pitch;
+    if (camera.fov !== BASE_FOV) {
+      camera.fov = BASE_FOV;
+      camera.updateProjectionMatrix();
+    }
     persistEditorSession(now);
     renderer.render(scene, camera);
     return;
@@ -780,9 +1019,14 @@ function render() {
   sendInput(dt);
 
   const view = getViewAngles();
-  camera.position.set(localState.pos[0], localState.pos[1] + EYE_HEIGHT, localState.pos[2]);
+  const eyeHeight = localState.crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
+  camera.position.set(localState.pos[0], localState.pos[1] + eyeHeight, localState.pos[2]);
   camera.rotation.y = view.yaw;
   camera.rotation.x = view.pitch;
+  updateScope();
+  if (buyOpen && !canOpenBuy()) {
+    closeBuyMenu();
+  }
 
   updateRemotePlayers();
   renderer.render(scene, camera);
@@ -803,7 +1047,8 @@ function updateRemotePlayers() {
       continue;
     }
     mesh.visible = sample.alive;
-    mesh.position.set(sample.pos[0], sample.pos[1], sample.pos[2]);
+    mesh.position.set(sample.pos[0], sample.pos[1] + (sample.crouching ? -0.3 : 0), sample.pos[2]);
+    mesh.scale.y = sample.crouching ? 0.7 : 1;
     mesh.rotation.y = sample.yaw;
   }
 }

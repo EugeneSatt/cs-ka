@@ -4,7 +4,19 @@ import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import type { MapData, ClientMessage, InputPayload, PlayerSnapshot, RoundState, ServerEvent } from '../../shared/src/types';
-import { EYE_HEIGHT, GRENADE_CONFIG, PLAYER_HEIGHT, PLAYER_RADIUS, TICK_RATE, WEAPON_CONFIG } from '../../shared/src/constants';
+import {
+  BUY_WINDOW,
+  EYE_HEIGHT,
+  FREEZE_TIME,
+  GRENADE_CONFIG,
+  PLAYER_HEIGHT,
+  PLAYER_RADIUS,
+  ROUND_TIME,
+  SWAP_ROUND,
+  TICK_RATE,
+  TOTAL_ROUNDS,
+  WEAPON_CONFIG,
+} from '../../shared/src/constants';
 import type { MatchTeam, Side, WeaponSlot, WeaponType } from '../../shared/src/constants';
 import { clamp } from '../../shared/src/math';
 import { movePlayer } from '../../shared/src/physics';
@@ -27,6 +39,7 @@ type Player = {
   name: string;
   matchTeam: MatchTeam;
   primary: WeaponType;
+  preferredSide?: Side;
   weapon: WeaponSlot;
   pos: Vec3;
   vel: Vec3;
@@ -44,6 +57,9 @@ type Player = {
   reloadEndTime: number;
   reloading: WeaponSlot | null;
   pendingSpawn: boolean;
+  crouching: boolean;
+  buyLocked: boolean;
+  buyChoice: WeaponType | null;
 };
 
 type Grenade = {
@@ -62,13 +78,14 @@ let nextGrenadeId = 1;
 let gameTime = 0;
 let round = 1;
 let phase: RoundState['phase'] = 'freeze';
-let freezeLeft = 10;
-let timeLeft = 115;
+let freezeLeft = FREEZE_TIME;
+let timeLeft = ROUND_TIME;
+let postLeft = 0;
 const scores = { A: 0, B: 0 };
 let pendingEvents: ServerEvent[] = [];
 
 function sideByTeam(currentRound: number): { A: Side; B: Side } {
-  if (currentRound <= 4) {
+  if (currentRound < SWAP_ROUND) {
     return { A: 'T', B: 'CT' };
   }
   return { A: 'CT', B: 'T' };
@@ -79,9 +96,30 @@ function teamForSide(side: Side, currentRound: number): MatchTeam {
   return sides.A === side ? 'A' : 'B';
 }
 
+function applyPrimary(player: Player, primary: WeaponType) {
+  player.primary = primary;
+  player.weapon = 'primary';
+  player.ammoPrimary = WEAPON_CONFIG[primary].magSize;
+  player.nextFireTime = 0;
+  player.reloadEndTime = 0;
+  player.reloading = null;
+  player.buyLocked = true;
+  player.buyChoice = primary;
+}
+
 function playerSide(player: Player): Side {
   const sides = sideByTeam(round);
   return player.matchTeam === 'A' ? sides.A : sides.B;
+}
+
+function roundElapsed(): number {
+  if (phase === 'freeze') {
+    return Math.max(0, FREEZE_TIME - freezeLeft);
+  }
+  if (phase === 'live') {
+    return FREEZE_TIME + Math.max(0, ROUND_TIME - timeLeft);
+  }
+  return FREEZE_TIME + ROUND_TIME;
 }
 
 function pickSpawn(side: Side): Vec3 {
@@ -91,6 +129,24 @@ function pickSpawn(side: Side): Vec3 {
   }
   const spawn = options[Math.floor(Math.random() * options.length)];
   return [spawn[0], spawn[1], spawn[2]];
+}
+
+function inBuyWindow(): boolean {
+  if (phase !== 'freeze' && phase !== 'live') {
+    return false;
+  }
+  return roundElapsed() <= BUY_WINDOW;
+}
+
+function applyDefaultBuys() {
+  if (!inBuyWindow()) {
+    for (const player of players.values()) {
+      if (player.buyLocked) {
+        continue;
+      }
+      applyPrimary(player, 'rifle');
+    }
+  }
 }
 
 function spawnPlayer(player: Player) {
@@ -107,20 +163,25 @@ function spawnPlayer(player: Player) {
   player.reloadEndTime = 0;
   player.reloading = null;
   player.pendingSpawn = false;
+  player.crouching = false;
+  player.buyLocked = false;
+  player.buyChoice = null;
 }
 
 function startRound() {
-  if (round > 8) {
+  if (round > TOTAL_ROUNDS) {
     phase = 'match_over';
     return;
   }
 
   phase = 'freeze';
-  freezeLeft = 10;
-  timeLeft = 115;
+  freezeLeft = FREEZE_TIME;
+  timeLeft = ROUND_TIME;
+  postLeft = 0;
   grenades.length = 0;
 
   for (const player of players.values()) {
+    player.primary = 'rifle';
     spawnPlayer(player);
   }
 
@@ -143,15 +204,37 @@ function endRound(winnerSide: Side, reason: 'elimination' | 'time') {
     reason,
   });
   round += 1;
-  if (round > 8) {
+  if (round > TOTAL_ROUNDS) {
     phase = 'match_over';
     return;
   }
   startRound();
 }
 
+function endRoundDraw(reason: 'time' | 'survivors') {
+  pendingEvents.push({
+    type: 'round_draw',
+    reason,
+  });
+  grenades.length = 0;
+  round += 1;
+  if (round > TOTAL_ROUNDS) {
+    phase = 'match_over';
+    return;
+  }
+  phase = 'post';
+  postLeft = 5;
+}
+
 function updateRound(dt: number) {
   if (phase === 'match_over') {
+    return;
+  }
+  if (phase === 'post') {
+    postLeft -= dt;
+    if (postLeft <= 0) {
+      startRound();
+    }
     return;
   }
   if (phase === 'freeze') {
@@ -164,7 +247,17 @@ function updateRound(dt: number) {
 
   timeLeft -= dt;
   if (timeLeft <= 0) {
-    endRound('CT', 'time');
+    const aliveT = countAlive('T');
+    const aliveCT = countAlive('CT');
+    if (aliveT > 0 && aliveCT > 0) {
+      endRoundDraw('time');
+    } else if (aliveCT > 0) {
+      endRound('CT', 'time');
+    } else if (aliveT > 0) {
+      endRound('T', 'time');
+    } else {
+      endRoundDraw('survivors');
+    }
     return;
   }
 
@@ -362,7 +455,12 @@ function processInputs() {
       const dt = clamp(input.dt, 0.001, 0.05);
       const moved = movePlayer(
         { pos: player.pos, vel: player.vel, onGround: player.onGround },
-        { f: clamp(input.move.f, -1, 1), s: clamp(input.move.s, -1, 1), jump: input.jump },
+        {
+          f: clamp(input.move.f, -1, 1),
+          s: clamp(input.move.s, -1, 1),
+          jump: input.jump,
+          crouch: input.crouch,
+        },
         player.yaw,
         dt,
         mapData
@@ -370,6 +468,7 @@ function processInputs() {
       player.pos = moved.pos;
       player.vel = moved.vel;
       player.onGround = moved.onGround;
+      player.crouching = input.crouch;
 
       if (input.shoot) {
         tryShoot(player);
@@ -424,6 +523,13 @@ function tryThrowGrenade(player: Player) {
   });
 
   player.grenades -= 1;
+}
+
+function tryBuy(player: Player, primary: WeaponType) {
+  if (!inBuyWindow()) {
+    return;
+  }
+  applyPrimary(player, primary);
 }
 
 function tryShoot(player: Player) {
@@ -585,6 +691,7 @@ function buildSnapshots(): PlayerSnapshot[] {
       },
       grenades: player.grenades,
       lastSeq: player.lastSeq,
+      crouching: player.crouching,
     });
   }
   return snapshots;
@@ -598,6 +705,7 @@ function tick() {
   updateReloads();
   updateGrenades(dt);
   processInputs();
+  applyDefaultBuys();
 
   const roundState: RoundState = {
     round,
@@ -606,6 +714,8 @@ function tick() {
     freezeLeft: Math.max(0, freezeLeft),
     scores: { ...scores },
     sideByTeam: sideByTeam(round),
+    postLeft: phase === 'post' ? Math.max(0, postLeft) : undefined,
+    postReason: phase === 'post' ? 'draw' : undefined,
   };
 
   const playersSnapshot = buildSnapshots();
@@ -660,10 +770,25 @@ wss.on('connection', (ws: WebSocket) => {
         teamCounts[player.matchTeam] += 1;
       }
 
-      let matchTeam: MatchTeam = teamCounts.A <= teamCounts.B ? 'A' : 'B';
-      if (teamCounts[matchTeam] >= 3) {
-        matchTeam = matchTeam === 'A' ? 'B' : 'A';
-      }
+      const currentSides = sideByTeam(round);
+      const preferredTeam: MatchTeam | null = message.preferredSide
+        ? currentSides.A === message.preferredSide
+          ? 'A'
+          : 'B'
+        : null;
+
+      const pickTeam = (candidate: MatchTeam | null): MatchTeam => {
+        if (candidate && teamCounts[candidate] < 3) {
+          return candidate;
+        }
+        const fallback: MatchTeam = teamCounts.A <= teamCounts.B ? 'A' : 'B';
+        if (teamCounts[fallback] < 3) {
+          return fallback;
+        }
+        return fallback === 'A' ? 'B' : 'A';
+      };
+
+      let matchTeam = pickTeam(preferredTeam);
       if (teamCounts[matchTeam] >= 3) {
         ws.close();
         return;
@@ -676,7 +801,8 @@ wss.on('connection', (ws: WebSocket) => {
         ws,
         name: message.name ?? id,
         matchTeam,
-        primary: message.primary,
+        primary: 'rifle',
+        preferredSide: message.preferredSide,
         weapon: 'primary',
         pos: [0, 0.1, 0],
         vel: [0, 0, 0],
@@ -685,7 +811,7 @@ wss.on('connection', (ws: WebSocket) => {
         hp: 100,
         alive: false,
         onGround: true,
-        ammoPrimary: WEAPON_CONFIG[message.primary].magSize,
+        ammoPrimary: WEAPON_CONFIG.rifle.magSize,
         ammoPistol: WEAPON_CONFIG.pistol.magSize,
         grenades: 1,
         lastSeq: 0,
@@ -694,6 +820,9 @@ wss.on('connection', (ws: WebSocket) => {
         reloadEndTime: 0,
         reloading: null,
         pendingSpawn: false,
+        crouching: false,
+        buyLocked: false,
+        buyChoice: null,
       };
 
       if (phase !== 'match_over') {
@@ -725,6 +854,11 @@ wss.on('connection', (ws: WebSocket) => {
 
     if (message.type === 'input') {
       player.inputQueue.push(message.input);
+      return;
+    }
+
+    if (message.type === 'buy') {
+      tryBuy(player, message.primary);
     }
   });
 

@@ -15,6 +15,11 @@
         <option value="sniper">Sniper</option>
         <option value="shotgun">Shotgun</option>
       </select>
+      <label for="side">Сторона на старт</label>
+      <select id="side">
+        <option value="T">Террористы</option>
+        <option value="CT">Контр-террористы</option>
+      </select>
       <div class="actions">
         <button id="join">Join Match</button>
         <button id="editor" class="ghost">Редактор</button>
@@ -31,13 +36,22 @@
       <div id="bottom">
         <div id="hp">HP 100</div>
         <div id="ammo">Ammo 0</div>
-        <div id="grenades">Grenade 1</div>
-      </div>
-      <div id="status"></div>
+      <div id="grenades">Grenade 1</div>
     </div>
+    <div id="status"></div>
+    <div id="buy-menu" class="buy hidden">
+      <div class="buy-title">Закуп (первые 10с)</div>
+      <div class="buy-row">
+        <button data-primary="rifle">АК-47</button>
+        <button data-primary="sniper">Снайперка</button>
+        <button data-primary="shotgun">Дробовик</button>
+      </div>
+      <div class="buy-hint">B — открыть/закрыть, 1/2/3 — выбрать</div>
+    </div>
+  </div>
 
-    <div id="crosshair"></div>
+  <div id="crosshair"></div>
 
-    <script type="module" src="/src/main.ts"></script>
+  <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

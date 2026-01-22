@@ -3,6 +3,7 @@ export const TICK_RATE = 30;
 export const PLAYER_RADIUS = 0.4;
 export const PLAYER_HEIGHT = 1.8;
 export const EYE_HEIGHT = 1.6;
+export const CROUCH_EYE_HEIGHT = 1.0;
 
 export const GRAVITY = -20;
 
@@ -10,6 +11,14 @@ export type WeaponType = 'rifle' | 'sniper' | 'shotgun';
 export type WeaponSlot = 'primary' | 'pistol' | 'grenade';
 export type Side = 'T' | 'CT';
 export type MatchTeam = 'A' | 'B';
+
+export const TOTAL_ROUNDS = 7;
+export const SWAP_ROUND = 4;
+export const FREEZE_TIME = 10;
+export const ROUND_TIME = 115;
+export const BUY_WINDOW = 10;
+
+export const CROUCH_SPEED_MULT = 0.55;
 
 export type WeaponConfig = {
   baseDamage: number;
@@ -59,8 +68,8 @@ export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', We
 
 export const GRENADE_CONFIG = {
   fuseTime: 2.2,
-  speed: 12,
-  upBoost: 4,
+  speed: 16,
+  upBoost: 2.5,
   radius: 5,
   maxDamage: 80,
 };

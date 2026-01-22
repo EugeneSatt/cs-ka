@@ -14,29 +14,562 @@
     "ceilHeight": 3.0,
     "floorGap": 0.3
   },
-
   "boxes": [
-     { "min": [-22, -0.3, -15], "max": [34, 0, 15], "color": "#eaeaea", "type": "floor" },
-
-    { "min": [-22, 0, -15], "max": [-21.75, 4.0, 15], "color": "#00A59C", "type": "wall" },
-    { "min": [33.75, 0, -15], "max": [34, 4.0, 15], "color": "#00A59C", "type": "wall" },
-    { "min": [-22, 0, -15], "max": [34, 4.0, -14.75], "color": "#1164B4", "type": "wall" },
-    { "min": [-22, 0, 14.75], "max": [34, 4.0, 15], "color": "#ffffff", "type": "wall" },
-
-    { "min": [-22, 0, 14.75], "max": [14, 4.0, 10], "color": "#00FFFF", "type": "wall" }
-
-
+    {
+      "min": [
+        -22,
+        -0.3,
+        -10
+      ],
+      "max": [
+        30,
+        0,
+        25
+      ],
+      "texture": "/pol.jpg",
+      "type": "floor"
+    },
+    {
+      "min": [
+        -22,
+        0,
+        -10
+      ],
+      "max": [
+        -21.75,
+        4.0,
+        25
+      ],
+      "texture": "/wall.jpg",
+      "type": "wall"
+    },
+    {
+      "min": [
+        29.75,
+        0,
+        -10
+      ],
+      "max": [
+        30,
+        4.0,
+        25
+      ],
+      "color": "#ffffff",
+      "texture": "/wall.jpg",
+      "type": "wall"
+    },
+    {
+      "min": [
+        -22,
+        0,
+        -10.25
+      ],
+      "max": [
+        30,
+        4.0,
+        -10
+      ],
+      "color": "#ffffff",
+      "texture": "/wall.jpg",
+      "type": "wall"
+    },
+    {
+      "min": [
+        -22,
+        0,
+        24.75
+      ],
+      "max": [
+        30,
+        4.0,
+        25
+      ],
+      "color": "#ffffff",
+      "texture": "/wall.jpg",
+      "type": "wall"
+    },
+    {
+      "min": [
+        -21.75,
+        0,
+        14.75
+      ],
+      "max": [
+        -16,
+        4.0,
+        15
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "gudanov paral d"
+    },
+    {
+      "min": [
+        -13.75,
+        0,
+        15
+      ],
+      "max": [
+        -10,
+        4.0,
+        25
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "gudanov paral sh"
+    },
+    {
+      "min": [
+        -21.75,
+        0,
+        10
+      ],
+      "max": [
+        -18,
+        4.0,
+        14.75
+      ],
+      "color": "#FF0000",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "block gudanov"
+    },
+    {
+      "min": [
+        -21.75,
+        0,
+        9.75
+      ],
+      "max": [
+        -18,
+        4.0,
+        10
+      ],
+      "color": "#ADFF2F",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "космо пара д блок"
+    },
+    {
+      "min": [
+        -16,
+        0,
+        9.75
+      ],
+      "max": [
+        -13,
+        4.0,
+        10
+      ],
+      "color": "#ADFF2F",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "космо пара д блок"
+    },
+    {
+      "min": [
+        -13.25,
+        0,
+        8
+      ],
+      "max": [
+        -13,
+        4.0,
+        12.5
+      ],
+      "color": "#ADFF2F",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "космо пара ш коридор "
+    },
+    {
+      "min": [
+        -13.25,
+        0,
+        0
+      ],
+      "max": [
+        -13,
+        4.0,
+        5
+      ],
+      "color": "#ADFF2F",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "космо пара ш коридор"
+    },
+    {
+      "min": [
+        -19.75,
+        0,
+        3
+      ],
+      "max": [
+        -13.25,
+        4.0,
+        3.25
+      ],
+      "color": "#ADFF2F",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "космо пара д снабжение"
+    },
+    {
+      "min": [
+        -13.25,
+        0,
+        -8.25
+      ],
+      "max": [
+        -13,
+        4.0,
+        -3
+      ],
+      "color": "#FF69B4",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "снабжение пара ширина"
+    },
+    {
+      "min": [
+        -8.25,
+        0,
+        -7.75
+      ],
+      "max": [
+        -8,
+        4.0,
+        10
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр пара лифт"
+    },
+    {
+      "min": [
+        -8,
+        0,
+        -7.75
+      ],
+      "max": [
+        0,
+        4.0,
+        -7.5
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр кофетачка"
+    },
+    {
+      "min": [
+        -0.25,
+        0,
+        -7.75
+      ],
+      "max": [
+        0,
+        4.0,
+        10
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр косметика"
+    },
+    {
+      "min": [
+        -8,
+        0,
+        2
+      ],
+      "max": [
+        15,
+        4.0,
+        2.25
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр бункер туалет опенспейс косметика"
+    },
+    {
+      "min": [
+        -1,
+        0,
+        9.75
+      ],
+      "max": [
+        3,
+        4.0,
+        10
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр коридор туалет"
+    },
+    {
+      "min": [
+        5.5,
+        0,
+        9.75
+      ],
+      "max": [
+        10,
+        4.0,
+        10
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр коридор туалет"
+    },
+    {
+      "min": [
+        12.5,
+        0,
+        9.75
+      ],
+      "max": [
+        15,
+        4.0,
+        10
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр коридор туалет"
+    },
+    {
+      "min": [
+        8,
+        0,
+        6
+      ],
+      "max": [
+        9,
+        4.0,
+        10
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр между туалет"
+    },
+    {
+      "min": [
+        14.75,
+        0,
+        2
+      ],
+      "max": [
+        15,
+        4.0,
+        10
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "центр между туалет"
+    },
+    {
+      "min": [
+        -8,
+        0,
+        6
+      ],
+      "max": [
+        -4,
+        4.0,
+        10
+      ],
+      "color": "#FF0000",
+      "type": "block",
+      "id": "block gudanov"
+    },
+    {
+      "min": [
+        -5,
+        0,
+        14.75
+      ],
+      "max": [
+        -4,
+        4.0,
+        25
+      ],
+      "color": "#00FFFF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "одежда коридор paral d"
+    },
+    {
+      "min": [
+        0.75,
+        0,
+        18.25
+      ],
+      "max": [
+        1,
+        4.0,
+        25
+      ],
+      "color": "#1E90FF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "одежда аналитика paral ш"
+    },
+    {
+      "min": [
+        -2,
+        0,
+        18
+      ],
+      "max": [
+        1,
+        4.0,
+        18.25
+      ],
+      "color": "#1E90FF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "проем  paral d"
+    },
+    {
+      "min": [
+        9,
+        0,
+        14.75
+      ],
+      "max": [
+        10,
+        4.0,
+        25
+      ],
+      "color": "#1E90FF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "лестница аналитика paral ш"
+    },
+    {
+      "min": [
+        -1.5,
+        0,
+        14.75
+      ],
+      "max": [
+        14,
+        4.0,
+        15
+      ],
+      "color": "#1E90FF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "проем  paral d"
+    },
+    {
+      "min": [
+        18,
+        0,
+        9
+      ],
+      "max": [
+        19,
+        4.0,
+        25
+      ],
+      "color": "#1E90FF",
+      "texture": "/wall.jpg",
+      "type": "wall",
+      "id": "лестница опенспейс paral ш"
+    }
   ],
-
   "spawns": {
     "T": [
-      [-19.5, 0.1, 12.5],
-      [-18.0, 0.1, 12.0],
-      [-19.0, 0.1, 11.0]
+      [-20.0, 0.1, -12.0],
+      [-20.0, 0.1, -5.0],
+      [-20.0, 0.1, 2.0]
     ],
     "CT": [
-      [19.0, 0.1, -12.5],
-      [18.0, 0.1, -12.0],
-      [19.5, 0.1, -11.0]
+      [8.0, 0.1, -12.0],
+      [8.0, 0.1, -5.0],
+      [8.0, 0.1, 3.0]
     ]
-  }}
+  },
+  "models": [
+    {
+      "path": "/arm_chair.glb",
+      "pos": [
+        -10,
+        0,
+        5
+      ],
+      "rot": [
+        0,
+        1.2,
+        0
+      ],
+      "scale": 0.55
+    },
+    {
+      "path": "/computer.glb",
+      "pos": [
+        6,
+        0.2,
+        -4
+      ],
+      "rot": [
+        0,
+        0.3,
+        0
+      ],
+      "scale": 0.9
+    },
+    {
+      "path": "/desk.glb",
+      "pos": [
+        -4,
+        0.2,
+        12
+      ],
+      "rot": [
+        0,
+        -0.4,
+        0
+      ],
+      "scale": 0.8
+    },
+    {
+      "path": "/dark_wood_dining_table.glb",
+      "pos": [
+        12,
+        0.2,
+        6
+      ],
+      "rot": [
+        0,
+        0.8,
+        0
+      ],
+      "scale": 0.75
+    },
+    {
+      "path": "/tablet.glb",
+      "pos": [
+        2,
+        0.9,
+        8
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "scale": 1.2
+    }
+  ]
+}

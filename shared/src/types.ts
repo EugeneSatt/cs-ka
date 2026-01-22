@@ -7,11 +7,20 @@ export type BoxDef = {
   min: Vec3;
   max: Vec3;
   color?: string;
+  texture?: string;
+};
+
+export type ModelDef = {
+  path: string;
+  pos: Vec3;
+  rot?: Vec3;
+  scale?: number | Vec3;
 };
 
 export type MapData = {
   name: string;
   boxes: BoxDef[];
+  models?: ModelDef[];
   spawns: {
     T: Vec3[];
     CT: Vec3[];
@@ -25,6 +34,7 @@ export type InputPayload = {
   yaw: number;
   pitch: number;
   jump: boolean;
+  crouch: boolean;
   shoot: boolean;
   weapon: WeaponSlot;
   reload: boolean;
@@ -35,6 +45,12 @@ export type ClientJoin = {
   type: 'join';
   name?: string;
   primary: WeaponType;
+  preferredSide?: Side;
+};
+
+export type ClientBuy = {
+  type: 'buy';
+  primary: WeaponType;
 };
 
 export type ClientInput = {
@@ -42,7 +58,7 @@ export type ClientInput = {
   input: InputPayload;
 };
 
-export type ClientMessage = ClientJoin | ClientInput;
+export type ClientMessage = ClientJoin | ClientInput | ClientBuy;
 
 export type PlayerSnapshot = {
   id: string;
@@ -63,6 +79,7 @@ export type PlayerSnapshot = {
   };
   grenades: number;
   lastSeq: number;
+  crouching: boolean;
 };
 
 export type GrenadeSnapshot = {
@@ -74,7 +91,7 @@ export type GrenadeSnapshot = {
 
 export type RoundState = {
   round: number;
-  phase: 'freeze' | 'live' | 'match_over';
+  phase: 'freeze' | 'live' | 'post' | 'match_over';
   timeLeft: number;
   freezeLeft: number;
   scores: {
@@ -85,6 +102,8 @@ export type RoundState = {
     A: Side;
     B: Side;
   };
+  postLeft?: number;
+  postReason?: 'draw';
 };
 
 export type ServerEvent =
@@ -106,6 +125,10 @@ export type ServerEvent =
       winnerSide: Side;
       winnerTeam: MatchTeam;
       reason: 'elimination' | 'time';
+    }
+  | {
+      type: 'round_draw';
+      reason: 'time' | 'survivors';
     }
   | {
       type: 'round_start';

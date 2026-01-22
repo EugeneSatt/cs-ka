@@ -1,5 +1,5 @@
 import type { MapData, Vec3 } from './types';
-import { GRAVITY, PLAYER_HEIGHT, PLAYER_RADIUS } from './constants';
+import { CROUCH_SPEED_MULT, GRAVITY, PLAYER_HEIGHT, PLAYER_RADIUS } from './constants';
 
 export type PhysicsState = {
   pos: Vec3;
@@ -11,6 +11,7 @@ export type MoveInput = {
   f: number;
   s: number;
   jump: boolean;
+  crouch?: boolean;
 };
 
 const MAX_SPEED = 6;
@@ -27,6 +28,8 @@ export function movePlayer(
   dt: number,
   map: MapData
 ): PhysicsState {
+  const crouching = !!move.crouch;
+  const speedMul = crouching ? CROUCH_SPEED_MULT : 1;
   const pos: Vec3 = [state.pos[0], state.pos[1], state.pos[2]];
   const vel: Vec3 = [state.vel[0], state.vel[1], state.vel[2]];
 
@@ -45,7 +48,7 @@ export function movePlayer(
       wish = [wish[0] / len, 0, wish[2] / len];
     }
     const accel = state.onGround ? GROUND_ACCEL : AIR_ACCEL;
-    const wishVel: Vec3 = [wish[0] * MAX_SPEED, 0, wish[2] * MAX_SPEED];
+    const wishVel: Vec3 = [wish[0] * MAX_SPEED * speedMul, 0, wish[2] * MAX_SPEED * speedMul];
     vel[0] = approach(vel[0], wishVel[0], accel * dt);
     vel[2] = approach(vel[2], wishVel[2], accel * dt);
   } else if (state.onGround) {
@@ -55,8 +58,9 @@ export function movePlayer(
   }
 
   const horiz = Math.hypot(vel[0], vel[2]);
-  if (horiz > MAX_SPEED) {
-    const scale = MAX_SPEED / horiz;
+  const maxSpeed = MAX_SPEED * speedMul;
+  if (horiz > maxSpeed) {
+    const scale = maxSpeed / horiz;
     vel[0] *= scale;
     vel[2] *= scale;
   }
