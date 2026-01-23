@@ -139,6 +139,11 @@ export type ServerEvent =
       };
     }
   | {
+      type: 'match_over';
+      reason: 'kills';
+      winners: Array<{ id: string; name: string; kills: number }>;
+    }
+  | {
       type: 'grenade_explode';
       pos: Vec3;
       ownerId: string;

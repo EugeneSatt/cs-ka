@@ -52,6 +52,7 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.rotation.order = 'YXZ';
+scene.add(camera);
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, THREE.Texture>();
 const gltfLoader = new GLTFLoader();
@@ -87,6 +88,7 @@ let recoilPitch = 0;
 let lastRecoilTime = 0;
 let scopeHeld = false;
 let scoped = false;
+let matchOverTimeout: number | null = null;
 
 const PITCH_LIMIT = 1.5;
 const RECOIL_RETURN_SPEED = 14;
@@ -97,6 +99,15 @@ const RECOIL_KICK: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', number> = {
   shotgun: 0.06,
   pistol: 0.02,
 };
+
+type WeaponViewConfig = {
+  path: string;
+  pos: Vec3;
+  rot: Vec3;
+  scale: number | Vec3;
+};
+
+const FIRST_PERSON_WEAPONS: Partial<Record<WeaponType, WeaponViewConfig>> = {};
 
 let socket: WebSocket | null = null;
 let clientId = '';
@@ -139,6 +150,10 @@ const editorState = {
 };
 
 let buyOpen = false;
+const viewWeaponGroup = new THREE.Group();
+camera.add(viewWeaponGroup);
+let viewWeaponType: WeaponType | null = null;
+let viewWeaponRequest = 0;
 
 type EditorSession = {
   active: boolean;
@@ -410,6 +425,36 @@ function getModel(path: string): Promise<THREE.Group> {
   return promise;
 }
 
+function setViewWeapon(type: WeaponType | null) {
+  if (viewWeaponType === type) {
+    return;
+  }
+  viewWeaponType = type;
+  viewWeaponGroup.clear();
+  if (!type) {
+    return;
+  }
+  const config = FIRST_PERSON_WEAPONS[type];
+  if (!config) {
+    return;
+  }
+  const requestId = ++viewWeaponRequest;
+  getModel(config.path).then((prefab) => {
+    if (viewWeaponType !== type || viewWeaponRequest !== requestId) {
+      return;
+    }
+    const instance = prefab.clone(true);
+    instance.position.set(config.pos[0], config.pos[1], config.pos[2]);
+    instance.rotation.set(config.rot[0], config.rot[1], config.rot[2]);
+    if (typeof config.scale === 'number') {
+      instance.scale.setScalar(config.scale);
+    } else {
+      instance.scale.set(config.scale[0], config.scale[1], config.scale[2]);
+    }
+    viewWeaponGroup.add(instance);
+  });
+}
+
 function roundElapsedSeconds(): number {
   if (!latestSnapshot) {
     return Infinity;
@@ -512,6 +557,10 @@ function resetLocalState() {
 function handleDisconnect(userInitiated: boolean) {
   if (cleanedUp) {
     return;
+  }
+  if (matchOverTimeout !== null) {
+    window.clearTimeout(matchOverTimeout);
+    matchOverTimeout = null;
   }
   cleanedUp = true;
   inMatch = false;
@@ -775,6 +824,25 @@ function handleEvents(events: ServerSnapshot['events']) {
     if (event.type === 'round_draw') {
       hudStatus.textContent = 'Ничья';
     }
+    if (event.type === 'match_over') {
+      if (event.winners.length === 1) {
+        const winner = event.winners[0];
+        hudStatus.textContent = `Победитель по убийствам: ${winner.name} (${winner.kills})`;
+      } else if (event.winners.length > 1) {
+        const label = event.winners.map((winner) => `${winner.name} (${winner.kills})`).join(', ');
+        hudStatus.textContent = `Ничья по убийствам: ${label}`;
+      } else {
+        hudStatus.textContent = 'Матч окончен.';
+      }
+      if (matchOverTimeout !== null) {
+        window.clearTimeout(matchOverTimeout);
+      }
+      matchOverTimeout = window.setTimeout(() => {
+        if (!inEditor) {
+          leaveMatch();
+        }
+      }, 3000);
+    }
   }
 }
 
@@ -1024,6 +1092,14 @@ function render() {
   camera.rotation.y = view.yaw;
   camera.rotation.x = view.pitch;
   updateScope();
+  const showWeapon =
+    pointerLocked &&
+    localState.alive &&
+    currentWeapon === 'primary' &&
+    Boolean(FIRST_PERSON_WEAPONS[localState.primary]) &&
+    !inEditor;
+  viewWeaponGroup.visible = showWeapon;
+  setViewWeapon(showWeapon ? localState.primary : null);
   if (buyOpen && !canOpenBuy()) {
     closeBuyMenu();
   }

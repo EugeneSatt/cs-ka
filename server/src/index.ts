@@ -60,6 +60,7 @@ type Player = {
   crouching: boolean;
   buyLocked: boolean;
   buyChoice: WeaponType | null;
+  kills: number;
 };
 
 type Grenade = {
@@ -83,6 +84,7 @@ let timeLeft = ROUND_TIME;
 let postLeft = 0;
 const scores = { A: 0, B: 0 };
 let pendingEvents: ServerEvent[] = [];
+let matchOverAnnounced = false;
 
 function sideByTeam(currentRound: number): { A: Side; B: Side } {
   if (currentRound < SWAP_ROUND) {
@@ -170,7 +172,7 @@ function spawnPlayer(player: Player) {
 
 function startRound() {
   if (round > TOTAL_ROUNDS) {
-    phase = 'match_over';
+    enterMatchOver();
     return;
   }
 
@@ -205,7 +207,7 @@ function endRound(winnerSide: Side, reason: 'elimination' | 'time') {
   });
   round += 1;
   if (round > TOTAL_ROUNDS) {
-    phase = 'match_over';
+    enterMatchOver();
     return;
   }
   startRound();
@@ -219,11 +221,40 @@ function endRoundDraw(reason: 'time' | 'survivors') {
   grenades.length = 0;
   round += 1;
   if (round > TOTAL_ROUNDS) {
-    phase = 'match_over';
+    enterMatchOver();
     return;
   }
   phase = 'post';
   postLeft = 5;
+}
+
+function enterMatchOver() {
+  phase = 'match_over';
+  if (matchOverAnnounced) {
+    return;
+  }
+  matchOverAnnounced = true;
+  const winners = getKillLeaders();
+  pendingEvents.push({
+    type: 'match_over',
+    reason: 'kills',
+    winners,
+  });
+}
+
+function getKillLeaders(): Array<{ id: string; name: string; kills: number }> {
+  let maxKills = -1;
+  const leaders: Array<{ id: string; name: string; kills: number }> = [];
+  for (const player of players.values()) {
+    if (player.kills > maxKills) {
+      maxKills = player.kills;
+      leaders.length = 0;
+      leaders.push({ id: player.id, name: player.name, kills: player.kills });
+    } else if (player.kills === maxKills) {
+      leaders.push({ id: player.id, name: player.name, kills: player.kills });
+    }
+  }
+  return leaders;
 }
 
 function updateRound(dt: number) {
@@ -419,6 +450,10 @@ function applyDamage(target: Player, attackerId: string, damage: number, weapon:
   });
   if (target.hp <= 0) {
     target.alive = false;
+    const attacker = players.get(attackerId);
+    if (attacker) {
+      attacker.kills += 1;
+    }
     pendingEvents.push({
       type: 'kill',
       attackerId,
@@ -818,12 +853,13 @@ wss.on('connection', (ws: WebSocket) => {
         inputQueue: [],
         nextFireTime: 0,
         reloadEndTime: 0,
-        reloading: null,
-        pendingSpawn: false,
-        crouching: false,
-        buyLocked: false,
-        buyChoice: null,
-      };
+      reloading: null,
+      pendingSpawn: false,
+      crouching: false,
+      buyLocked: false,
+      buyChoice: null,
+      kills: 0,
+    };
 
       if (phase !== 'match_over') {
         spawnPlayer(player);
