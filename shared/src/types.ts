@@ -8,6 +8,7 @@ export type BoxDef = {
   max: Vec3;
   color?: string;
   texture?: string;
+  type?: string;
 };
 
 export type ModelDef = {
@@ -15,6 +16,10 @@ export type ModelDef = {
   pos: Vec3;
   rot?: Vec3;
   scale?: number | Vec3;
+  collider?: {
+    min: Vec3;
+    max: Vec3;
+  };
 };
 
 export type MapData = {
@@ -26,6 +31,8 @@ export type MapData = {
     CT: Vec3[];
   };
 };
+
+export type GameMode = 'team' | 'ffa';
 
 export type InputPayload = {
   seq: number;
@@ -46,6 +53,8 @@ export type ClientJoin = {
   name?: string;
   primary: WeaponType;
   preferredSide?: Side;
+  matchMode?: GameMode;
+  teamSize?: number;
 };
 
 export type ClientBuy = {
@@ -80,6 +89,8 @@ export type PlayerSnapshot = {
   grenades: number;
   lastSeq: number;
   crouching: boolean;
+  kills: number;
+  deaths: number;
 };
 
 export type GrenadeSnapshot = {
@@ -91,7 +102,7 @@ export type GrenadeSnapshot = {
 
 export type RoundState = {
   round: number;
-  phase: 'freeze' | 'live' | 'post' | 'match_over';
+  phase: 'waiting' | 'freeze' | 'live' | 'post' | 'match_over';
   timeLeft: number;
   freezeLeft: number;
   scores: {
@@ -104,6 +115,10 @@ export type RoundState = {
   };
   postLeft?: number;
   postReason?: 'draw';
+  mode: GameMode;
+  teamSize: number;
+  neededPlayers: number;
+  presentPlayers: number;
 };
 
 export type ServerEvent =
@@ -119,6 +134,13 @@ export type ServerEvent =
       attackerId: string;
       victimId: string;
       weapon: WeaponSlot | WeaponType;
+    }
+  | {
+      type: 'shot';
+      shooterId: string;
+      origin: Vec3;
+      dir: Vec3;
+      distance: number;
     }
   | {
       type: 'round_end';

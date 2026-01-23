@@ -3,7 +3,7 @@ import type { Vec3 } from './types';
 export function directionFromYawPitch(yaw: number, pitch: number): Vec3 {
   const cosPitch = Math.cos(pitch);
   return [
-    Math.sin(yaw) * cosPitch,
+    -Math.sin(yaw) * cosPitch,
     Math.sin(pitch),
     -Math.cos(yaw) * cosPitch,
   ];

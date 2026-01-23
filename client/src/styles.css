@@ -95,6 +95,37 @@ body {
   top: 8px;
 }
 
+.crosshair-hit #crosshair::before,
+.crosshair-hit #crosshair::after {
+  background: #ff3b30;
+  box-shadow: 0 0 6px rgba(255, 59, 48, 0.6);
+}
+
+.hidden {
+  display: none !important;
+}
+
+#scope-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 50% 50%,
+    transparent 0%,
+    transparent 28%,
+    rgba(0, 0, 0, 0.85) 46%,
+    rgba(0, 0, 0, 0.95) 62%,
+    rgba(0, 0, 0, 1) 100%
+  );
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 6;
+}
+
+#scope-overlay.visible {
+  opacity: 1;
+}
+
 .overlay {
   position: fixed;
   inset: 0;

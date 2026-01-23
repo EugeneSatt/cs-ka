@@ -15,6 +15,7 @@ import {
   CROUCH_EYE_HEIGHT,
   EYE_HEIGHT,
   FREEZE_TIME,
+  PLAYER_RADIUS,
   PLAYER_HEIGHT,
   ROUND_TIME,
   TOTAL_ROUNDS,
@@ -26,13 +27,16 @@ import editorMap from '../../shared/maps/arena.json';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const BASE_FOV = 75;
-const SCOPE_FOV = 32;
+const SNIPER_SCOPE_FOV = 12;
+const RIFLE_SCOPE_FOV = 60;
 
 const menu = document.getElementById('menu') as HTMLDivElement;
 const joinButton = document.getElementById('join') as HTMLButtonElement;
 const primarySelect = document.getElementById('primary') as HTMLSelectElement;
 const editorButton = document.getElementById('editor') as HTMLButtonElement;
 const sideSelect = document.getElementById('side') as HTMLSelectElement;
+const modeSelect = document.getElementById('mode') as HTMLSelectElement;
+const teamSizeSelect = document.getElementById('team-size') as HTMLSelectElement;
 
 const hudRound = document.getElementById('round') as HTMLDivElement;
 const hudTimer = document.getElementById('timer') as HTMLDivElement;
@@ -41,7 +45,12 @@ const hudHp = document.getElementById('hp') as HTMLDivElement;
 const hudAmmo = document.getElementById('ammo') as HTMLDivElement;
 const hudGrenades = document.getElementById('grenades') as HTMLDivElement;
 const hudStatus = document.getElementById('status') as HTMLDivElement;
+const hudKda = document.getElementById('kda') as HTMLDivElement;
 const buyMenu = document.getElementById('buy-menu') as HTMLDivElement;
+const crosshair = document.getElementById('crosshair') as HTMLDivElement;
+const scopeOverlay = document.createElement('div');
+scopeOverlay.id = 'scope-overlay';
+document.body.appendChild(scopeOverlay);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -107,7 +116,26 @@ type WeaponViewConfig = {
   scale: number | Vec3;
 };
 
-const FIRST_PERSON_WEAPONS: Partial<Record<WeaponType, WeaponViewConfig>> = {};
+const FIRST_PERSON_WEAPONS: Partial<Record<WeaponType, WeaponViewConfig>> = {
+  rifle: {
+    path: '/ak-47.glb',
+    pos: [0.28, -0.28, -0.55],
+    rot: [-0.05, Math.PI, 0],
+    scale: 0.95,
+  },
+  sniper: {
+    path: '/awp.glb',
+    pos: [0.28, -0.32, -0.6],
+    rot: [-0.02, Math.PI, 0],
+    scale: 0.9,
+  },
+  shotgun: {
+    path: '/spas_12.glb',
+    pos: [0.3, -0.26, -0.55],
+    rot: [-0.03, Math.PI, 0],
+    scale: 0.9,
+  },
+};
 
 let socket: WebSocket | null = null;
 let clientId = '';
@@ -134,6 +162,8 @@ const localState = {
   ammo: { primary: 30, pistol: 12 },
   grenades: 1,
   crouching: false,
+  kills: 0,
+  deaths: 0,
 };
 
 const playerMeshes = new Map<string, THREE.Group>();
@@ -150,10 +180,13 @@ const editorState = {
 };
 
 let buyOpen = false;
+let crosshairHitTimeout: number | null = null;
+let spectateId: string | null = null;
 const viewWeaponGroup = new THREE.Group();
 camera.add(viewWeaponGroup);
 let viewWeaponType: WeaponType | null = null;
 let viewWeaponRequest = 0;
+let weaponBobPhase = 0;
 
 type EditorSession = {
   active: boolean;
@@ -163,13 +196,26 @@ type EditorSession = {
 };
 
 const EDITOR_STORAGE_KEY = 'csvert-editor-session';
-let currentEditorMap: MapData = editorMap as MapData;
+
+function coerceMapData(data: unknown): MapData {
+  return data as MapData;
+}
+
+let currentEditorMap: MapData = coerceMapData(editorMap);
 let lastEditorPersist = 0;
+
+type Tracer = { mesh: THREE.Line; expire: number };
+const tracers: Tracer[] = [];
+type PlayerModelConfig = { path: string; scale: number; yOffset?: number; rotY?: number };
+const PLAYER_MODELS: Record<Side, PlayerModelConfig> = {
+  T: { path: '/terr.glb', scale: 1.1, yOffset: 0, rotY: Math.PI },
+  CT: { path: '/fbi.glb', scale: 1.1, yOffset: 0, rotY: Math.PI },
+};
 
 if (import.meta.hot) {
   import.meta.hot.accept('../../shared/maps/arena.json', (mod) => {
     if (mod?.default) {
-      currentEditorMap = mod.default as MapData;
+      currentEditorMap = coerceMapData(mod.default);
       if (inEditor) {
         mapData = currentEditorMap;
         buildMap(currentEditorMap);
@@ -182,13 +228,15 @@ function connect() {
   cleanedUp = false;
   leavingMatch = false;
   const primary = primarySelect.value as WeaponType;
+  const matchMode = modeSelect.value as 'team' | 'ffa';
+  const teamSize = Number(teamSizeSelect.value) || 4;
   const serverUrl = new URL(window.location.href).searchParams.get('server');
   const wsUrl = serverUrl ?? `ws://${window.location.hostname}:8080`;
 
   socket = new WebSocket(wsUrl);
 
   socket.addEventListener('open', () => {
-    const join = { type: 'join', primary, preferredSide: sideSelect.value as Side };
+    const join = { type: 'join', primary, preferredSide: sideSelect.value as Side, matchMode, teamSize };
     socket?.send(JSON.stringify(join));
   });
 
@@ -219,6 +267,18 @@ joinButton.addEventListener('click', () => {
 
 editorButton.addEventListener('click', () => {
   enterEditor();
+});
+
+function refreshModeUI() {
+  const isTeam = modeSelect.value === 'team';
+  sideSelect.classList.toggle('hidden', !isTeam);
+  teamSizeSelect.classList.toggle('hidden', !isTeam);
+  (sideSelect.previousElementSibling as HTMLElement | null)?.classList.toggle('hidden', !isTeam);
+  (teamSizeSelect.previousElementSibling as HTMLElement | null)?.classList.toggle('hidden', !isTeam);
+}
+
+modeSelect.addEventListener('change', () => {
+  refreshModeUI();
 });
 
 buyMenu.querySelectorAll('button[data-primary]').forEach((btn) => {
@@ -344,7 +404,12 @@ function resetHud() {
   hudHp.textContent = 'HP 100';
   hudAmmo.textContent = 'Ammo 0';
   hudGrenades.textContent = 'Grenade 0';
+  if (hudKda) {
+    hudKda.textContent = 'K/D 0/0';
+  }
   buyMenu.classList.add('hidden');
+  document.body.classList.remove('crosshair-hit');
+  spectateId = null;
 }
 
 function clearMeshes() {
@@ -404,6 +469,32 @@ function resetPlayState() {
   clearMeshes();
 }
 
+function flashCrosshairHit() {
+  document.body.classList.add('crosshair-hit');
+  if (crosshairHitTimeout !== null) {
+    window.clearTimeout(crosshairHitTimeout);
+  }
+  crosshairHitTimeout = window.setTimeout(() => {
+    document.body.classList.remove('crosshair-hit');
+    crosshairHitTimeout = null;
+  }, 180);
+}
+
+function updateSpectateTarget(playerMap: Map<string, PlayerSnapshot>) {
+  if (localState.alive) {
+    spectateId = null;
+    return;
+  }
+  if (spectateId) {
+    const target = playerMap.get(spectateId);
+    if (target?.alive) {
+      return;
+    }
+  }
+  const alive = Array.from(playerMap.values()).filter((p) => p.alive && p.id !== clientId);
+  spectateId = alive.length > 0 ? alive[0].id : null;
+}
+
 function getTexture(path: string): THREE.Texture {
   let tex = textureCache.get(path);
   if (!tex) {
@@ -439,20 +530,28 @@ function setViewWeapon(type: WeaponType | null) {
     return;
   }
   const requestId = ++viewWeaponRequest;
-  getModel(config.path).then((prefab) => {
-    if (viewWeaponType !== type || viewWeaponRequest !== requestId) {
-      return;
-    }
-    const instance = prefab.clone(true);
-    instance.position.set(config.pos[0], config.pos[1], config.pos[2]);
-    instance.rotation.set(config.rot[0], config.rot[1], config.rot[2]);
-    if (typeof config.scale === 'number') {
-      instance.scale.setScalar(config.scale);
-    } else {
-      instance.scale.set(config.scale[0], config.scale[1], config.scale[2]);
-    }
-    viewWeaponGroup.add(instance);
-  });
+  getModel(config.path)
+    .then((prefab) => {
+      if (viewWeaponType !== type || viewWeaponRequest !== requestId) {
+        return;
+      }
+      const instance = prefab.clone(true);
+      const box = new THREE.Box3().setFromObject(instance);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const targetHeight = 1;
+      const baseScale = size.y > 0 ? targetHeight / size.y : 1;
+      const scaleMul = typeof config.scale === 'number' ? config.scale : 1;
+      instance.scale.setScalar(baseScale * scaleMul);
+      instance.position.set(config.pos[0], config.pos[1], config.pos[2]);
+      instance.rotation.set(config.rot[0], config.rot[1], config.rot[2]);
+      instance.traverse((child) => {
+        child.castShadow = false;
+        child.receiveShadow = false;
+      });
+      viewWeaponGroup.add(instance);
+    })
+    .catch((err) => console.warn('Failed to load view weapon', config.path, err));
 }
 
 function roundElapsedSeconds(): number {
@@ -539,6 +638,8 @@ function resetLocalState() {
   localState.ammo.pistol = WEAPON_CONFIG.pistol.magSize;
   localState.grenades = 1;
   localState.crouching = false;
+  localState.kills = 0;
+  localState.deaths = 0;
 
   currentWeapon = 'primary';
   pointerLocked = false;
@@ -630,6 +731,7 @@ function exitEditor() {
 }
 
 resetHud();
+refreshModeUI();
 restoreEditorSession();
 
 function buildMap(map: MapData) {
@@ -638,6 +740,9 @@ function buildMap(map: MapData) {
   }
   const group = new THREE.Group();
   for (const box of map.boxes) {
+    if (box.type === 'collider_model') {
+      continue;
+    }
     const size = new THREE.Vector3(
       box.max[0] - box.min[0],
       box.max[1] - box.min[1],
@@ -713,6 +818,8 @@ function handleSnapshot(snapshot: ServerSnapshot) {
     localState.ammo = { ...me.ammo };
     localState.grenades = me.grenades;
     localState.crouching = me.crouching;
+    localState.kills = me.kills ?? localState.kills;
+    localState.deaths = me.deaths ?? localState.deaths;
 
     localState.pos = [...me.pos];
     localState.vel = [...me.vel];
@@ -735,6 +842,7 @@ function handleSnapshot(snapshot: ServerSnapshot) {
       localState.onGround = moved.onGround;
     }
   }
+  updateSpectateTarget(playerMap);
 
   updatePlayerMeshes(snapshot.players);
   updateGrenadeMeshes(snapshot.grenades);
@@ -750,7 +858,7 @@ function updatePlayerMeshes(players: PlayerSnapshot[]) {
       continue;
     }
     if (!playerMeshes.has(player.id)) {
-      const mesh = createPlayerMesh(player.side === 'T' ? 0xf39c4a : 0x4aa3f3);
+      const mesh = createPlayerMesh(player.side);
       scene.add(mesh);
       playerMeshes.set(player.id, mesh);
     }
@@ -790,10 +898,19 @@ function updateGrenadeMeshes(grenades: GrenadeSnapshot[]) {
 
 function updateHud(snapshot: ServerSnapshot) {
   const phase = snapshot.round.phase;
-  hudRound.textContent = `Round ${snapshot.round.round}/${TOTAL_ROUNDS} (${phase})`;
+  const isFfa = snapshot.round.mode === 'ffa';
+  const roundLabel =
+    phase === 'waiting'
+      ? `Waiting ${snapshot.round.presentPlayers}/${snapshot.round.neededPlayers}`
+      : isFfa
+      ? 'FFA'
+      : `Round ${snapshot.round.round}/${TOTAL_ROUNDS}`;
+  hudRound.textContent = `${roundLabel} (${phase})`;
 
   const phaseTime =
-    phase === 'freeze'
+    phase === 'waiting'
+      ? 0
+      : phase === 'freeze'
       ? snapshot.round.freezeLeft
       : phase === 'post'
       ? snapshot.round.postLeft ?? 0
@@ -802,21 +919,37 @@ function updateHud(snapshot: ServerSnapshot) {
   const seconds = Math.max(0, Math.floor(phaseTime % 60));
   hudTimer.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
-  hudScore.textContent = `A ${snapshot.round.scores.A} (${snapshot.round.sideByTeam.A}) - (${snapshot.round.sideByTeam.B}) ${snapshot.round.scores.B} B`;
+  if (phase === 'waiting') {
+    hudStatus.textContent = `Ожидание игроков ${snapshot.round.presentPlayers}/${snapshot.round.neededPlayers}`;
+  }
+
+  hudScore.textContent = isFfa
+    ? `Players ${snapshot.round.presentPlayers}`
+    : `A ${snapshot.round.scores.A} (${snapshot.round.sideByTeam.A}) - (${snapshot.round.sideByTeam.B}) ${snapshot.round.scores.B} B`;
 
   hudHp.textContent = `HP ${localState.hp}`;
   const ammoValue = localState.weapon === 'pistol' ? localState.ammo.pistol : localState.ammo.primary;
   hudAmmo.textContent = `Ammo ${ammoValue}`;
   hudGrenades.textContent = `Grenade ${localState.grenades}`;
+  hudKda.textContent = `K/D ${localState.kills}/${localState.deaths}`;
   if (phase === 'post' && snapshot.round.postReason === 'draw') {
-    hudStatus.textContent = 'Ничья';
+    hudStatus.textContent = 'Draw';
   }
 }
 
 function handleEvents(events: ServerSnapshot['events']) {
   for (const event of events) {
     if (event.type === 'round_end') {
-      hudStatus.textContent = `Round win: ${event.winnerSide} (${event.reason})`;
+      const me = latestSnapshot?.players.find((p) => p.id === clientId);
+      if (me) {
+        if (me.side === event.winnerSide) {
+          hudStatus.textContent = 'Победа';
+        } else {
+          hudStatus.textContent = 'Поражение';
+        }
+      } else {
+        hudStatus.textContent = `Round: ${event.winnerSide}`;
+      }
     }
     if (event.type === 'round_start') {
       hudStatus.textContent = `Round ${event.round} start.`;
@@ -824,15 +957,24 @@ function handleEvents(events: ServerSnapshot['events']) {
     if (event.type === 'round_draw') {
       hudStatus.textContent = 'Ничья';
     }
+    if (event.type === 'hit' && event.attackerId === clientId) {
+      flashCrosshairHit();
+    }
+    if (event.type === 'kill' && event.attackerId === clientId) {
+      flashCrosshairHit();
+    }
+    if (event.type === 'shot') {
+      spawnTracer(event.origin, event.dir, event.distance);
+    }
     if (event.type === 'match_over') {
       if (event.winners.length === 1) {
         const winner = event.winners[0];
-        hudStatus.textContent = `Победитель по убийствам: ${winner.name} (${winner.kills})`;
+        hudStatus.textContent = `Лучший: ${winner.name} (${winner.kills})`;
       } else if (event.winners.length > 1) {
         const label = event.winners.map((winner) => `${winner.name} (${winner.kills})`).join(', ');
-        hudStatus.textContent = `Ничья по убийствам: ${label}`;
+        hudStatus.textContent = `Лучшие: ${label}`;
       } else {
-        hudStatus.textContent = 'Матч окончен.';
+        hudStatus.textContent = 'Матч завершен.';
       }
       if (matchOverTimeout !== null) {
         window.clearTimeout(matchOverTimeout);
@@ -846,20 +988,71 @@ function handleEvents(events: ServerSnapshot['events']) {
   }
 }
 
-function createPlayerMesh(color: number): THREE.Group {
+function createPlayerMesh(side: Side): THREE.Group {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.8, PLAYER_HEIGHT * 0.75, 0.6),
-    new THREE.MeshStandardMaterial({ color })
+  const hitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(PLAYER_RADIUS * 2, PLAYER_HEIGHT, PLAYER_RADIUS * 2),
+    new THREE.MeshBasicMaterial({
+      color: 0x00ff66,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+    })
   );
-  body.position.y = PLAYER_HEIGHT * 0.375;
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.25, 12, 12),
-    new THREE.MeshStandardMaterial({ color: 0xf2f2f2 })
-  );
-  head.position.y = PLAYER_HEIGHT * 0.85;
-  group.add(body, head);
+  hitbox.position.y = PLAYER_HEIGHT * 0.5;
+  group.add(hitbox);
+
+  const config = PLAYER_MODELS[side];
+  getModel(config.path)
+    .then((prefab) => {
+      const instance = prefab.clone(true);
+      const box = new THREE.Box3().setFromObject(instance);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const scaleBase = size.y > 0 ? PLAYER_HEIGHT / size.y : 1;
+      const finalScale = scaleBase * (config.scale ?? 1);
+      instance.scale.setScalar(finalScale);
+      const yOffset = -(box.min.y * finalScale) + (config.yOffset ?? 0);
+      instance.position.set(0, yOffset, 0);
+      instance.rotation.y = config.rotY ?? 0;
+      instance.traverse((child) => {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      });
+      group.add(instance);
+      group.userData.model = instance;
+    })
+    .catch((err) => {
+      console.warn('Failed to load player model', config.path, err);
+    });
   return group;
+}
+
+function spawnTracer(origin: Vec3, dir: Vec3, distance: number) {
+  const start = new THREE.Vector3(origin[0], origin[1], origin[2]);
+  const end = new THREE.Vector3(
+    origin[0] + dir[0] * distance,
+    origin[1] + dir[1] * distance,
+    origin[2] + dir[2] * distance
+  );
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+  const material = new THREE.LineBasicMaterial({ color: 0xffaa00, linewidth: 2 });
+  const line = new THREE.Line(geometry, material);
+  scene.add(line);
+  tracers.push({ mesh: line, expire: performance.now() + 200 });
+}
+
+function updateTracers(now: number) {
+  for (let i = tracers.length - 1; i >= 0; i -= 1) {
+    const tracer = tracers[i];
+    if (now >= tracer.expire) {
+      scene.remove(tracer.mesh);
+      tracer.mesh.geometry.dispose();
+      (tracer.mesh.material as THREE.Material).dispose();
+      tracers.splice(i, 1);
+    }
+  }
 }
 
 function updateInputState() {
@@ -963,14 +1156,17 @@ function updateScope(forceOff = false) {
     !inEditor &&
     localState.alive &&
     currentWeapon === 'primary' &&
-    localState.primary === 'sniper' &&
     latestSnapshot?.round.phase === 'live';
-  const targetFov = allow ? SCOPE_FOV : BASE_FOV;
+  let targetFov = BASE_FOV;
+  if (allow) {
+    targetFov = localState.primary === 'sniper' ? SNIPER_SCOPE_FOV : RIFLE_SCOPE_FOV;
+  }
   if (Math.abs(camera.fov - targetFov) > 0.1) {
     camera.fov = targetFov;
     camera.updateProjectionMatrix();
   }
   scoped = allow;
+  scopeOverlay.classList.toggle('visible', scoped && localState.primary === 'sniper');
 }
 
 function applyRecoil(nowSeconds: number) {
@@ -1014,7 +1210,7 @@ function sendInput(dt: number) {
     return;
   }
   const phase = latestSnapshot?.round.phase;
-  if (phase === 'post' || phase === 'match_over') {
+  if (phase === 'post' || phase === 'match_over' || phase === 'waiting') {
     inputState.reload = false;
     inputState.throwGrenade = false;
     return;
@@ -1086,11 +1282,22 @@ function render() {
   applyRecoil(now / 1000);
   sendInput(dt);
 
+  const renderTime = performance.now() / 1000 + serverTimeOffset - 0.1;
+
   const view = getViewAngles();
-  const eyeHeight = localState.crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
-  camera.position.set(localState.pos[0], localState.pos[1] + eyeHeight, localState.pos[2]);
-  camera.rotation.y = view.yaw;
-  camera.rotation.x = view.pitch;
+  if (!localState.alive && spectateId) {
+    const spectated = samplePlayer(spectateId, renderTime);
+    if (spectated) {
+      camera.position.set(spectated.pos[0], spectated.pos[1] + EYE_HEIGHT, spectated.pos[2]);
+      camera.rotation.y = spectated.yaw;
+      camera.rotation.x = spectated.pitch;
+    }
+  } else {
+    const eyeHeight = localState.crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
+    camera.position.set(localState.pos[0], localState.pos[1] + eyeHeight, localState.pos[2]);
+    camera.rotation.y = view.yaw;
+    camera.rotation.x = view.pitch;
+  }
   updateScope();
   const showWeapon =
     pointerLocked &&
@@ -1100,21 +1307,32 @@ function render() {
     !inEditor;
   viewWeaponGroup.visible = showWeapon;
   setViewWeapon(showWeapon ? localState.primary : null);
+  if (showWeapon) {
+    const moveSpeed = Math.hypot(localState.vel[0], localState.vel[2]);
+    weaponBobPhase += dt * Math.min(moveSpeed, 7) * 8;
+    const bobX = Math.sin(weaponBobPhase) * 0.025;
+    const bobY = Math.cos(weaponBobPhase * 0.5) * 0.02;
+    viewWeaponGroup.position.set(bobX, bobY, 0);
+    viewWeaponGroup.rotation.set(-Math.abs(Math.sin(weaponBobPhase)) * 0.03, 0, bobX * 0.8);
+  } else {
+    viewWeaponGroup.position.set(0, 0, 0);
+    viewWeaponGroup.rotation.set(0, 0, 0);
+  }
   if (buyOpen && !canOpenBuy()) {
     closeBuyMenu();
   }
 
-  updateRemotePlayers();
+  updateRemotePlayers(renderTime);
+  updateTracers(now);
   renderer.render(scene, camera);
 }
 
 let lastFrameTime = performance.now();
 
-function updateRemotePlayers() {
+function updateRemotePlayers(renderTime: number) {
   if (!latestSnapshot) {
     return;
   }
-  const renderTime = performance.now() / 1000 + serverTimeOffset - 0.1;
 
   for (const [id, mesh] of playerMeshes.entries()) {
     const sample = samplePlayer(id, renderTime);
@@ -1123,9 +1341,20 @@ function updateRemotePlayers() {
       continue;
     }
     mesh.visible = sample.alive;
-    mesh.position.set(sample.pos[0], sample.pos[1] + (sample.crouching ? -0.3 : 0), sample.pos[2]);
-    mesh.scale.y = sample.crouching ? 0.7 : 1;
+    const speed = Math.hypot(sample.vel[0], sample.vel[2]);
+    const bob = Math.sin(renderTime * 8 + id.charCodeAt(0)) * (0.02 + 0.03 * Math.min(1, speed / 4));
+    mesh.position.set(sample.pos[0], sample.pos[1] + bob, sample.pos[2]);
+    const scaleY = sample.crouching ? 0.6 : 1;
+    mesh.scale.set(1, scaleY, 1);
     mesh.rotation.y = sample.yaw;
+    const model = mesh.userData.model as THREE.Object3D | undefined;
+    if (model) {
+      model.rotation.y = (PLAYER_MODELS[sample.side].rotY ?? 0) + sample.yaw;
+      model.position.y = (PLAYER_MODELS[sample.side].yOffset ?? 0) + (sample.crouching ? -0.25 : 0);
+      const walkTilt = Math.sin(renderTime * 10) * 0.05 * Math.min(1, speed / 4);
+      model.rotation.x = walkTilt;
+      model.rotation.z = -walkTilt * 0.4;
+    }
   }
 }
 

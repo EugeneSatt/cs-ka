@@ -11,12 +11,14 @@ export type WeaponType = 'rifle' | 'sniper' | 'shotgun';
 export type WeaponSlot = 'primary' | 'pistol' | 'grenade';
 export type Side = 'T' | 'CT';
 export type MatchTeam = 'A' | 'B';
+export type RoundPhase = 'waiting' | 'freeze' | 'live' | 'post' | 'match_over';
 
 export const TOTAL_ROUNDS = 7;
 export const SWAP_ROUND = 4;
 export const FREEZE_TIME = 10;
 export const ROUND_TIME = 115;
 export const BUY_WINDOW = 10;
+export const FFA_ROUND_TIME = 180;
 
 export const CROUCH_SPEED_MULT = 0.55;
 
@@ -32,37 +34,37 @@ export type WeaponConfig = {
 
 export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', WeaponConfig> = {
   rifle: {
-    baseDamage: 34,
+    baseDamage: 30,
     fireRate: 10,
-    range: 80,
+    range: 1000,
     magSize: 30,
     reloadTime: 1.8,
-    spread: 0.01,
+    spread: 0,
   },
   sniper: {
     baseDamage: 80,
     fireRate: 1.2,
-    range: 120,
+    range: 1200,
     magSize: 5,
     reloadTime: 2.4,
-    spread: 0.002,
+    spread: 0,
   },
   shotgun: {
-    baseDamage: 10,
+    baseDamage: 8,
     fireRate: 1,
-    range: 14,
+    range: 120,
     magSize: 8,
     reloadTime: 2.6,
-    spread: 0.08,
+    spread: 0,
     pellets: 8,
   },
   pistol: {
-    baseDamage: 22,
+    baseDamage: 18,
     fireRate: 4,
-    range: 50,
+    range: 250,
     magSize: 12,
     reloadTime: 1.4,
-    spread: 0.02,
+    spread: 0,
   },
 };
 

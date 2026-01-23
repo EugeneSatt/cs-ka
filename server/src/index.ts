@@ -3,11 +3,13 @@ import type { RawData } from 'ws';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import type { MapData, ClientMessage, InputPayload, PlayerSnapshot, RoundState, ServerEvent } from '../../shared/src/types';
+import type { MapData, ClientMessage, InputPayload, PlayerSnapshot, RoundState, ServerEvent, ModelDef, BoxDef, GameMode } from '../../shared/src/types';
 import {
   BUY_WINDOW,
+  CROUCH_EYE_HEIGHT,
   EYE_HEIGHT,
   FREEZE_TIME,
+  FFA_ROUND_TIME,
   GRENADE_CONFIG,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
@@ -26,12 +28,12 @@ import type { Vec3 } from '../../shared/src/types';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const mapFile = process.env.MAP ?? 'arena.json';
 const mapPath = resolve(__dirname, '../../shared/maps', mapFile);
-const mapData = JSON.parse(readFileSync(mapPath, 'utf8')) as MapData;
+const mapData = addModelColliders(JSON.parse(readFileSync(mapPath, 'utf8')) as MapData);
 
 const PORT = Number(process.env.PORT ?? 8080);
 const wss = new WebSocketServer({ port: PORT });
 
-const MAX_PLAYERS = 6;
+const MAX_PLAYERS = 8;
 
 type Player = {
   id: string;
@@ -61,6 +63,8 @@ type Player = {
   buyLocked: boolean;
   buyChoice: WeaponType | null;
   kills: number;
+  deaths: number;
+  respawnAt: number;
 };
 
 type Grenade = {
@@ -78,15 +82,20 @@ let nextGrenadeId = 1;
 
 let gameTime = 0;
 let round = 1;
-let phase: RoundState['phase'] = 'freeze';
+let phase: RoundState['phase'] = 'waiting';
 let freezeLeft = FREEZE_TIME;
 let timeLeft = ROUND_TIME;
 let postLeft = 0;
 const scores = { A: 0, B: 0 };
 let pendingEvents: ServerEvent[] = [];
 let matchOverAnnounced = false;
+let gameMode: GameMode = 'team';
+let teamSizeConfig = 4;
 
 function sideByTeam(currentRound: number): { A: Side; B: Side } {
+  if (gameMode === 'ffa') {
+    return { A: 'T', B: 'CT' };
+  }
   if (currentRound < SWAP_ROUND) {
     return { A: 'T', B: 'CT' };
   }
@@ -119,13 +128,27 @@ function roundElapsed(): number {
     return Math.max(0, FREEZE_TIME - freezeLeft);
   }
   if (phase === 'live') {
-    return FREEZE_TIME + Math.max(0, ROUND_TIME - timeLeft);
+    const base = gameMode === 'team' ? FREEZE_TIME : 0;
+    const duration = gameMode === 'team' ? ROUND_TIME : FFA_ROUND_TIME;
+    return base + Math.max(0, duration - timeLeft);
   }
-  return FREEZE_TIME + ROUND_TIME;
+  const duration = gameMode === 'team' ? ROUND_TIME : FFA_ROUND_TIME;
+  return (gameMode === 'team' ? FREEZE_TIME : 0) + duration;
 }
 
-function pickSpawn(side: Side): Vec3 {
-  const options = mapData.spawns[side];
+function requiredPlayers(): number {
+  if (gameMode === 'team') {
+    return teamSizeConfig * 2;
+  }
+  return 2;
+}
+
+function readyToStart(): boolean {
+  return players.size >= requiredPlayers();
+}
+
+function pickSpawn(side: Side | 'any'): Vec3 {
+  const options = side === 'any' ? [...mapData.spawns.T, ...mapData.spawns.CT] : mapData.spawns[side];
   if (!options || options.length === 0) {
     return [0, 0.1, 0];
   }
@@ -152,7 +175,8 @@ function applyDefaultBuys() {
 }
 
 function spawnPlayer(player: Player) {
-  player.pos = pickSpawn(playerSide(player));
+  const spawnSide: Side | 'any' = gameMode === 'ffa' ? 'any' : playerSide(player);
+  player.pos = pickSpawn(spawnSide);
   player.vel = [0, 0, 0];
   player.hp = 100;
   player.alive = true;
@@ -168,21 +192,23 @@ function spawnPlayer(player: Player) {
   player.crouching = false;
   player.buyLocked = false;
   player.buyChoice = null;
+  player.respawnAt = Infinity;
 }
 
 function startRound() {
-  if (round > TOTAL_ROUNDS) {
-    enterMatchOver();
-    return;
-  }
-
-  phase = 'freeze';
-  freezeLeft = FREEZE_TIME;
-  timeLeft = ROUND_TIME;
+  matchOverAnnounced = false;
+  phase = gameMode === 'team' ? 'freeze' : 'live';
+  freezeLeft = gameMode === 'team' ? FREEZE_TIME : 0;
+  timeLeft = gameMode === 'team' ? ROUND_TIME : FFA_ROUND_TIME;
   postLeft = 0;
   grenades.length = 0;
 
+  const resetStats = round === 1;
   for (const player of players.values()) {
+    if (resetStats) {
+      player.kills = 0;
+      player.deaths = 0;
+    }
     player.primary = 'rifle';
     spawnPlayer(player);
   }
@@ -193,8 +219,6 @@ function startRound() {
     sideByTeam: sideByTeam(round),
   });
 }
-
-startRound();
 
 function endRound(winnerSide: Side, reason: 'elimination' | 'time') {
   const winningTeam = teamForSide(winnerSide, round);
@@ -229,17 +253,25 @@ function endRoundDraw(reason: 'time' | 'survivors') {
 }
 
 function enterMatchOver() {
-  phase = 'match_over';
   if (matchOverAnnounced) {
     return;
   }
   matchOverAnnounced = true;
+  phase = 'match_over';
   const winners = getKillLeaders();
   pendingEvents.push({
     type: 'match_over',
     reason: 'kills',
     winners,
   });
+  // reset to waiting for next match
+  round = 1;
+  scores.A = 0;
+  scores.B = 0;
+  freezeLeft = 0;
+  timeLeft = 0;
+  postLeft = 0;
+  phase = 'waiting';
 }
 
 function getKillLeaders(): Array<{ id: string; name: string; kills: number }> {
@@ -258,6 +290,13 @@ function getKillLeaders(): Array<{ id: string; name: string; kills: number }> {
 }
 
 function updateRound(dt: number) {
+  if (phase === 'waiting') {
+    if (readyToStart()) {
+      startRound();
+    }
+    return;
+  }
+
   if (phase === 'match_over') {
     return;
   }
@@ -278,29 +317,35 @@ function updateRound(dt: number) {
 
   timeLeft -= dt;
   if (timeLeft <= 0) {
-    const aliveT = countAlive('T');
-    const aliveCT = countAlive('CT');
-    if (aliveT > 0 && aliveCT > 0) {
-      endRoundDraw('time');
-    } else if (aliveCT > 0) {
-      endRound('CT', 'time');
-    } else if (aliveT > 0) {
-      endRound('T', 'time');
+    if (gameMode === 'team') {
+      const aliveT = countAlive('T');
+      const aliveCT = countAlive('CT');
+      if (aliveT > 0 && aliveCT > 0) {
+        endRoundDraw('time');
+      } else if (aliveCT > 0) {
+        endRound('CT', 'time');
+      } else if (aliveT > 0) {
+        endRound('T', 'time');
+      } else {
+        endRoundDraw('survivors');
+      }
     } else {
-      endRoundDraw('survivors');
+      enterMatchOver();
     }
     return;
   }
 
-  const aliveT = countAlive('T');
-  const aliveCT = countAlive('CT');
-  const presentT = countSidePlayers('T');
-  const presentCT = countSidePlayers('CT');
-  if (presentT > 0 && presentCT > 0) {
-    if (aliveT === 0 && aliveCT > 0) {
-      endRound('CT', 'elimination');
-    } else if (aliveCT === 0 && aliveT > 0) {
-      endRound('T', 'elimination');
+  if (gameMode === 'team') {
+    const aliveT = countAlive('T');
+    const aliveCT = countAlive('CT');
+    const presentT = countSidePlayers('T');
+    const presentCT = countSidePlayers('CT');
+    if (presentT > 0 && presentCT > 0) {
+      if (aliveT === 0 && aliveCT > 0) {
+        endRound('CT', 'elimination');
+      } else if (aliveCT === 0 && aliveT > 0) {
+        endRound('T', 'elimination');
+      }
     }
   }
 }
@@ -450,6 +495,10 @@ function applyDamage(target: Player, attackerId: string, damage: number, weapon:
   });
   if (target.hp <= 0) {
     target.alive = false;
+    target.deaths += 1;
+    if (gameMode === 'ffa') {
+      target.respawnAt = gameTime + 1.2;
+    }
     const attacker = players.get(attackerId);
     if (attacker) {
       attacker.kills += 1;
@@ -508,6 +557,51 @@ function processInputs() {
       if (input.shoot) {
         tryShoot(player);
       }
+    }
+  }
+}
+
+function processRespawns() {
+  if (phase !== 'live' || gameMode !== 'ffa') {
+    return;
+  }
+  for (const player of players.values()) {
+    if (player.alive) {
+      continue;
+    }
+    if (gameTime >= player.respawnAt) {
+      spawnPlayer(player);
+    }
+  }
+}
+
+function resolvePlayerOverlaps() {
+  const playerList = Array.from(players.values()).filter((p) => p.alive);
+  const minDist = PLAYER_RADIUS * 2;
+  for (let i = 0; i < playerList.length; i += 1) {
+    for (let j = i + 1; j < playerList.length; j += 1) {
+      const a = playerList[i];
+      const b = playerList[j];
+      const dx = b.pos[0] - a.pos[0];
+      const dz = b.pos[2] - a.pos[2];
+      const distSq = dx * dx + dz * dz;
+      if (distSq <= 1e-6) {
+        const offset = minDist * 0.5;
+        a.pos[0] -= offset;
+        b.pos[0] += offset;
+        continue;
+      }
+      const dist = Math.sqrt(distSq);
+      if (dist >= minDist) {
+        continue;
+      }
+      const overlap = (minDist - dist) * 0.5;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      a.pos[0] -= nx * overlap;
+      a.pos[2] -= nz * overlap;
+      b.pos[0] += nx * overlap;
+      b.pos[2] += nz * overlap;
     }
   }
 }
@@ -596,7 +690,11 @@ function tryShoot(player: Player) {
 
   player.nextFireTime = now + 1 / config.fireRate;
 
-  const origin: Vec3 = [player.pos[0], player.pos[1] + EYE_HEIGHT, player.pos[2]];
+  const origin: Vec3 = [
+    player.pos[0],
+    player.pos[1] + (player.crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT),
+    player.pos[2],
+  ];
 
   if (weaponType === 'shotgun') {
     for (let i = 0; i < (config.pellets ?? 8); i += 1) {
@@ -620,23 +718,37 @@ function fireHitscan(
   const pitchSpread = (Math.random() * 2 - 1) * spread;
   const dir = directionFromYawPitch(player.yaw + yawSpread, player.pitch + pitchSpread);
 
-  const mapDist = raycastMap(origin, dir, range);
-  const hit = raycastPlayers(origin, dir, range, player.id);
+  const MUZZLE_OFFSET = 0.15;
+  const muzzle: Vec3 = [
+    origin[0] + dir[0] * MUZZLE_OFFSET,
+    origin[1] + dir[1] * MUZZLE_OFFSET,
+    origin[2] + dir[2] * MUZZLE_OFFSET,
+  ];
 
+  const mapDist = raycastMap(muzzle, dir, range);
+  const hit = raycastPlayers(muzzle, dir, range, player.id);
   const HIT_EPS = 0.01;
+  const travel = hit && hit.distance - HIT_EPS < mapDist ? hit.distance : mapDist;
+  pendingEvents.push({
+    type: 'shot',
+    shooterId: player.id,
+    origin: muzzle,
+    dir,
+    distance: Math.min(range, travel),
+  });
   if (!hit || hit.distance - HIT_EPS >= mapDist) {
     return;
   }
 
   const hitPoint: Vec3 = [
-    origin[0] + dir[0] * hit.distance,
-    origin[1] + dir[1] * hit.distance,
-    origin[2] + dir[2] * hit.distance,
+    muzzle[0] + dir[0] * hit.distance,
+    muzzle[1] + dir[1] * hit.distance,
+    muzzle[2] + dir[2] * hit.distance,
   ];
   const rel = hitPoint[1] - hit.player.pos[1];
   let multiplier = 1;
   if (rel > PLAYER_HEIGHT * 0.75) {
-    multiplier = 3;
+    multiplier = 1.5;
   } else if (rel < PLAYER_HEIGHT * 0.35) {
     multiplier = 0.75;
   }
@@ -650,9 +762,10 @@ function fireHitscan(
 
 function raycastMap(origin: Vec3, dir: Vec3, range: number): number {
   let closest = Infinity;
+  const MIN_DIST = 0.02;
   for (const box of mapData.boxes) {
     const dist = rayIntersectAABB(origin, dir, box.min, box.max);
-    if (dist !== null && dist >= 0 && dist < closest) {
+    if (dist !== null && dist > MIN_DIST && dist < closest) {
       closest = dist;
     }
   }
@@ -676,10 +789,11 @@ function raycastPlayers(
     if (!player.alive || player.id === shooterId) {
       continue;
     }
-    if (playerSide(player) === shooterSide) {
+    if (gameMode === 'team' && playerSide(player) === shooterSide) {
       continue;
     }
 
+    const height = player.crouching ? PLAYER_HEIGHT * 0.6 : PLAYER_HEIGHT;
     const min: Vec3 = [
       player.pos[0] - PLAYER_RADIUS,
       player.pos[1],
@@ -687,7 +801,7 @@ function raycastPlayers(
     ];
     const max: Vec3 = [
       player.pos[0] + PLAYER_RADIUS,
-      player.pos[1] + PLAYER_HEIGHT,
+      player.pos[1] + height,
       player.pos[2] + PLAYER_RADIUS,
     ];
 
@@ -727,6 +841,8 @@ function buildSnapshots(): PlayerSnapshot[] {
       grenades: player.grenades,
       lastSeq: player.lastSeq,
       crouching: player.crouching,
+      kills: player.kills,
+      deaths: player.deaths,
     });
   }
   return snapshots;
@@ -740,6 +856,8 @@ function tick() {
   updateReloads();
   updateGrenades(dt);
   processInputs();
+  processRespawns();
+  resolvePlayerOverlaps();
   applyDefaultBuys();
 
   const roundState: RoundState = {
@@ -751,6 +869,10 @@ function tick() {
     sideByTeam: sideByTeam(round),
     postLeft: phase === 'post' ? Math.max(0, postLeft) : undefined,
     postReason: phase === 'post' ? 'draw' : undefined,
+    mode: gameMode,
+    teamSize: teamSizeConfig,
+    neededPlayers: requiredPlayers(),
+    presentPlayers: players.size,
   };
 
   const playersSnapshot = buildSnapshots();
@@ -800,33 +922,55 @@ wss.on('connection', (ws: WebSocket) => {
         return;
       }
 
-      const teamCounts = { A: 0, B: 0 };
-      for (const player of players.values()) {
-        teamCounts[player.matchTeam] += 1;
+      if (players.size === 0) {
+        if (message.matchMode === 'ffa' || message.matchMode === 'team') {
+          gameMode = message.matchMode;
+        } else {
+          gameMode = 'team';
+        }
+        if (gameMode === 'team' && message.teamSize) {
+          teamSizeConfig = clamp(Math.floor(message.teamSize), 1, 4);
+        }
       }
 
-      const currentSides = sideByTeam(round);
-      const preferredTeam: MatchTeam | null = message.preferredSide
-        ? currentSides.A === message.preferredSide
-          ? 'A'
-          : 'B'
-        : null;
+      if (gameMode === 'team' && message.teamSize) {
+        teamSizeConfig = clamp(Math.floor(message.teamSize), 1, 4);
+      }
 
-      const pickTeam = (candidate: MatchTeam | null): MatchTeam => {
-        if (candidate && teamCounts[candidate] < 3) {
-          return candidate;
+      let matchTeam: MatchTeam = 'A';
+      if (gameMode === 'team') {
+        const teamCounts = { A: 0, B: 0 };
+        for (const player of players.values()) {
+          teamCounts[player.matchTeam] += 1;
         }
-        const fallback: MatchTeam = teamCounts.A <= teamCounts.B ? 'A' : 'B';
-        if (teamCounts[fallback] < 3) {
-          return fallback;
-        }
-        return fallback === 'A' ? 'B' : 'A';
-      };
 
-      let matchTeam = pickTeam(preferredTeam);
-      if (teamCounts[matchTeam] >= 3) {
-        ws.close();
-        return;
+        const currentSides = sideByTeam(round);
+        const preferredTeam: MatchTeam | null = message.preferredSide
+          ? currentSides.A === message.preferredSide
+            ? 'A'
+            : 'B'
+          : null;
+
+        const pickTeam = (candidate: MatchTeam | null): MatchTeam => {
+          if (candidate && teamCounts[candidate] < teamSizeConfig) {
+            const other = candidate === 'A' ? 'B' : 'A';
+            const diff = teamCounts[candidate] - teamCounts[other];
+            if (diff <= 0) {
+              return candidate;
+            }
+          }
+          const fallback: MatchTeam = teamCounts.A <= teamCounts.B ? 'A' : 'B';
+          if (teamCounts[fallback] < teamSizeConfig) {
+            return fallback;
+          }
+          return fallback === 'A' ? 'B' : 'A';
+        };
+
+        matchTeam = pickTeam(preferredTeam);
+        if (teamCounts[matchTeam] >= teamSizeConfig) {
+          ws.close();
+          return;
+        }
       }
 
       const id = `p${nextPlayerId++}`;
@@ -853,13 +997,15 @@ wss.on('connection', (ws: WebSocket) => {
         inputQueue: [],
         nextFireTime: 0,
         reloadEndTime: 0,
-      reloading: null,
-      pendingSpawn: false,
-      crouching: false,
-      buyLocked: false,
-      buyChoice: null,
-      kills: 0,
-    };
+        reloading: null,
+        pendingSpawn: false,
+        crouching: false,
+        buyLocked: false,
+        buyChoice: null,
+        kills: 0,
+        deaths: 0,
+        respawnAt: 0,
+      };
 
       if (phase !== 'match_over') {
         spawnPlayer(player);
@@ -906,3 +1052,56 @@ wss.on('connection', (ws: WebSocket) => {
 });
 
 console.log(`Server running on ws://localhost:${PORT}`);
+function modelCollider(model: ModelDef): { min: Vec3; max: Vec3 } | null {
+  if (model.collider) {
+    return model.collider;
+  }
+  const name = model.path.toLowerCase();
+  const defaults: Record<string, { min: Vec3; max: Vec3 }> = {
+    'arm_chair': { min: [-0.5, 0, -0.5], max: [0.5, 1.2, 0.5] },
+    'chair': { min: [-0.4, 0, -0.4], max: [0.4, 1.1, 0.4] },
+    'desk': { min: [-1.0, 0, -0.8], max: [1.0, 1.1, 0.8] },
+    'table': { min: [-1.2, 0, -1.2], max: [1.2, 1.0, 1.2] },
+    'computer': { min: [-0.35, 0, -0.35], max: [0.35, 0.7, 0.35] },
+    'tablet': { min: [-0.25, 0, -0.2], max: [0.25, 0.2, 0.2] },
+  };
+  for (const key of Object.keys(defaults)) {
+    if (name.includes(key)) {
+      return defaults[key];
+    }
+  }
+  return null;
+}
+
+function addModelColliders(map: MapData): MapData {
+  if (!map.models) {
+    return map;
+  }
+  const extra: BoxDef[] = [];
+  for (const model of map.models) {
+    const base = modelCollider(model);
+    if (!base) {
+      continue;
+    }
+    const scale = model.scale ?? 1;
+    const scaleVec: Vec3 = Array.isArray(scale) ? scale : [scale, scale, scale];
+    const min: Vec3 = [
+      model.pos[0] + base.min[0] * scaleVec[0],
+      model.pos[1] + base.min[1] * scaleVec[1],
+      model.pos[2] + base.min[2] * scaleVec[2],
+    ];
+    const max: Vec3 = [
+      model.pos[0] + base.max[0] * scaleVec[0],
+      model.pos[1] + base.max[1] * scaleVec[1],
+      model.pos[2] + base.max[2] * scaleVec[2],
+    ];
+    extra.push({
+      min,
+      max,
+      color: '#888888',
+      type: 'collider_model',
+      id: `model_${model.path}`,
+    });
+  }
+  return { ...map, boxes: [...map.boxes, ...extra] };
+}

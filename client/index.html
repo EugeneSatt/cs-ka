@@ -9,49 +9,62 @@
   <body>
     <div id="menu" class="overlay">
       <h1>CS Vert</h1>
+      <label for="mode">Р РµР¶РёРј</label>
+      <select id="mode">
+        <option value="team">РљРѕРјР°РЅРґР°</option>
+        <option value="ffa">РћРґРёРЅРѕС‡РєР°</option>
+      </select>
+      <label for="team-size">Р Р°Р·РјРµСЂ РєРѕРјР°РЅРґС‹</label>
+      <select id="team-size">
+        <option value="1">1 vs 1</option>
+        <option value="2">2 vs 2</option>
+        <option value="3">3 vs 3</option>
+        <option value="4" selected>4 vs 4</option>
+      </select>
       <label for="primary">Primary weapon</label>
       <select id="primary">
         <option value="rifle">Rifle</option>
         <option value="sniper">Sniper</option>
         <option value="shotgun">Shotgun</option>
       </select>
-      <label for="side">Сторона на старт</label>
+      <label for="side">РЎС'Р?С?Р?Р?Р° Р?Р° С?С'Р°С?С'</label>
       <select id="side">
-        <option value="T">Террористы</option>
-        <option value="CT">Контр-террористы</option>
+        <option value="T">РўРµСЂСЂРѕСЂРёСЃС‚С‹</option>
+        <option value="CT">РљРѕРЅС‚СЂ-С‚РµСЂСЂРѕСЂ</option>
       </select>
       <div class="actions">
         <button id="join">Join Match</button>
-        <button id="editor" class="ghost">Редактор</button>
+        <button id="editor" class="ghost">Р РµРґР°РєС‚РѕСЂ</button>
       </div>
       <div class="hint">Click in the scene to lock pointer.</div>
     </div>
 
     <div id="hud">
       <div id="top">
-        <div id="round">Round 1/8</div>
+        <div id="round">Round -</div>
         <div id="timer">00:00</div>
         <div id="score">A 0 - 0 B</div>
       </div>
       <div id="bottom">
         <div id="hp">HP 100</div>
         <div id="ammo">Ammo 0</div>
-      <div id="grenades">Grenade 1</div>
-    </div>
-    <div id="status"></div>
-    <div id="buy-menu" class="buy hidden">
-      <div class="buy-title">Закуп (первые 10с)</div>
-      <div class="buy-row">
-        <button data-primary="rifle">АК-47</button>
-        <button data-primary="sniper">Снайперка</button>
-        <button data-primary="shotgun">Дробовик</button>
+        <div id="grenades">Grenade 1</div>
+        <div id="kda">K/D 0/0</div>
       </div>
-      <div class="buy-hint">B — открыть/закрыть, 1/2/3 — выбрать</div>
+      <div id="status"></div>
+      <div id="buy-menu" class="buy hidden">
+        <div class="buy-title">РџРѕРєСѓРїРєР° (РїРµСЂРІС‹Рµ 10СЃ)</div>
+        <div class="buy-row">
+          <button data-primary="rifle">РђРљ-47</button>
+          <button data-primary="sniper">РЎРЅР°Р№РїРµСЂРєР°</button>
+          <button data-primary="shotgun">Р”СЂРѕР±РѕРІРёРє</button>
+        </div>
+        <div class="buy-hint">B вЂ” РњРµРЅСЋ РїРѕРєСѓРїРєРё, 1/2/3 вЂ” РЎР»РѕС‚С‹</div>
+      </div>
     </div>
-  </div>
 
-  <div id="crosshair"></div>
+    <div id="crosshair"></div>
 
-  <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
