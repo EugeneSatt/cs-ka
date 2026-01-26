@@ -52,8 +52,10 @@ const scopeOverlay = document.createElement('div');
 scopeOverlay.id = 'scope-overlay';
 document.body.appendChild(scopeOverlay);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+// Немного снижаем качество ради производительности: убираем full antialias и лимитируем DPR.
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+const MAX_DPR = 1.25;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_DPR));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x0c1014);
 document.body.appendChild(renderer.domElement);
@@ -75,6 +77,7 @@ scene.add(dirLight);
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_DPR));
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
