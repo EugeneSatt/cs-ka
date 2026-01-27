@@ -1,0 +1,24 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "zeroDowntime": true
+  },
+  "services": {
+    "server": {
+      "root": "server",
+      "installCommand": "npm install",
+      "startCommand": "npm start",
+      "port": 8080
+    },
+    "client": {
+      "root": "client",
+      "installCommand": "npm install && npm run build",
+      "startCommand": "npm run preview -- --host --port 4173",
+      "port": 4173
+    }
+  }
+}
+

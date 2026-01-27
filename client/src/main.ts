@@ -233,8 +233,9 @@ function connect() {
   const primary = primarySelect.value as WeaponType;
   const matchMode = modeSelect.value as 'team' | 'ffa';
   const teamSize = Number(teamSizeSelect.value) || 4;
-  const serverUrl = new URL(window.location.href).searchParams.get('server');
-  const wsUrl = serverUrl ?? `ws://${window.location.hostname}:8080`;
+  const serverParam = new URL(window.location.href).searchParams.get('server');
+  const envUrl = (import.meta as any).env?.VITE_WS_URL as string | undefined;
+  const wsUrl = serverParam ?? envUrl ?? `ws://${window.location.hostname}:8080`;
 
   socket = new WebSocket(wsUrl);
 
