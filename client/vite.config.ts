@@ -9,4 +9,7 @@ export default defineConfig({
       allow: [resolve(__dirname, '..')],
     },
   },
+  preview: {
+    allowedHosts: ['cs-ka-production-081a.up.railway.app'],
+  },
 });
