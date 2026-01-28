@@ -87,7 +87,49 @@
     { "min": [ -1.5, 0, 14.75 ], "max": [ 14, 3.2, 14.9 ], "color": "#FFDEAD", "texture": "/wall.jpg", "type": "wall", "id": "проем  коридор аналитика paral d" },
     { "min": [ -1.5, 1.1, 14.7 ], "max": [ 14, 1.2, 14.9 ], "color": "#8B4513", "type": "wall", "id": "проем коридор аналитика полос" },
     { "min": [ -1.5, 0, 14.9 ], "max": [ 14, 3.2, 15 ], "color": "#FFDEAD", "type": "wall", "id": "проем  paral d" },
-    { "min": [ 18, 0, 9 ], "max": [ 19, 3.2, 25 ], "color": "#1E90FF", "texture": "/wall.jpg", "type": "wall", "id": "лестница опенспейс paral ш" }
+    { "min": [ 18, 0, 9 ], "max": [ 19, 3.2, 25 ], "color": "#1E90FF", "texture": "/wall.jpg", "type": "wall", "id": "лестница опенспейс paral ш" },
+
+
+
+    { "min": [-10, 0.0, 15], "max": [-8, 0.2, 21.5], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 0.2, 15.5], "max": [-8, 0.4, 22], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 0.4, 16], "max": [-8, 0.6, 22.5], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 0.6, 16.5], "max": [-8, 0.8, 23], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 0.8, 17], "max": [-8, 1.0, 23.5], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 1.0, 17.5], "max": [-8, 1.2, 24], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 1.2, 18], "max": [-8, 1.4, 24.5], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 1.4, 18.5], "max": [-8, 1.6, 25], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 1.6, 19], "max": [-8, 1.8, 25], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 1.8, 19.5], "max": [-8, 2, 25], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 2, 20], "max": [-8, 2.2, 25], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 2.2, 20.5], "max": [-8, 2.4, 25], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 2.4, 21], "max": [-8, 2.6, 25], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 2.6, 21.5], "max": [-8, 2.8, 25], "type": "stair_step" , "id": "Лестница днк"},
+    { "min": [-10, 2.8, 22], "max": [-4, 3, 25], "type": "stair_step" , "id": "Лестница днк"},
+
+    { "min": [10, 0.0, 17], "max": [14, 0.2, 21.5], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 0.2, 17.25], "max": [14, 0.4, 22], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 0.4, 17.5], "max": [14, 0.6, 22.5], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 0.6, 17.75], "max": [14, 0.8, 23], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 0.8, 18], "max": [14, 1.0, 23.5], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 1.0, 18.25], "max": [14, 1.2, 24], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 1.2, 18.5], "max": [14, 1.4, 24.5], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 1.4, 18.75], "max": [14, 1.6, 25], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 1.6, 19], "max": [14, 1.8, 25], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 1.8, 19.25], "max": [14, 2, 25], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 2, 19.5], "max": [14, 2.2, 25], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 2.2, 19.75], "max": [14, 2.4, 25], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 2.4, 20], "max": [14, 2.6, 25], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 2.6, 20.25], "max": [14, 2.8, 25], "type": "stair_step" , "id": "Лестница основа"},
+    { "min": [10, 2.8, 20.5], "max": [18, 3, 25], "type": "stair_step" , "id": "Лестница основа"}
+
+
+
+
+
+
+
+
   ],
   "spawns": {
     "T": [
@@ -182,12 +224,12 @@
                 { "path": "/texture/officetable_comp.glb", "pos": [ 24 , 0.1, 6.5 ], "rot": [ 0, -1.6, 0 ], "scale": 0.2, "id": "Иосиф" },
                 { "path": "/texture/officetable_comp.glb", "pos": [ 28.8 , 0.1, 7 ], "rot": [ 0, 0, 0 ], "scale": 0.2, "id": "Иосиф" },
                     { "path": "/texture/officetable_comp.glb", "pos": [ 28.8 , 0.1, 5 ], "rot": [ 0, 0, 0 ], "scale": 0.2, "id": "Иосиф" },
-{ "path": "/texture/officetable_comp.glb", "pos": [ 26 , 0.1, 12 ], "rot": [ 0, 1.6, 0 ], "scale": 0.2, "id": "Лысюк" },
-                { "path": "/texture/officetable_comp.glb", "pos": [ 26 , 0.1, 11.5 ], "rot": [ 0, -1.6, 0 ], "scale": 0.2, "id": "Лысюк" },
-        { "path": "/texture/officetable_comp.glb", "pos": [ 24 , 0.1, 10 ], "rot": [ 0, 1.6, 0 ], "scale": 0.2, "id": "Лысюк" },
-                { "path": "/texture/officetable_comp.glb", "pos": [ 24 , 0.1, 10.5 ], "rot": [ 0, -1.6, 0 ], "scale": 0.2, "id": "Лысюк" },
-                { "path": "/texture/officetable_comp.glb", "pos": [ 28.8 , 0.1, 7 ], "rot": [ 0, 0, 0 ], "scale": 0.2, "id": "Лысюк" },
-                    { "path": "/texture/officetable_comp.glb", "pos": [ 28.8 , 0.1, 5 ], "rot": [ 0, 0, 0 ], "scale": 0.2, "id": "Лысюк" },
+{ "path": "/texture/officetable_comp.glb", "pos": [ 26 , 0.1, 11 ], "rot": [ 0, 1.6, 0 ], "scale": 0.2, "id": "Лысюк" },
+                { "path": "/texture/officetable_comp.glb", "pos": [ 26 , 0.1, 14.5 ], "rot": [ 0, -1.6, 0 ], "scale": 0.2, "id": "Лысюк" },
+        { "path": "/texture/officetable_comp.glb", "pos": [ 24 , 0.1, 11 ], "rot": [ 0, 1.6, 0 ], "scale": 0.2, "id": "Лысюк" },
+                { "path": "/texture/officetable_comp.glb", "pos": [ 24 , 0.1, 14.5 ], "rot": [ 0, -1.6, 0 ], "scale": 0.2, "id": "Лысюк" },
+                { "path": "/texture/officetable_comp.glb", "pos": [ 28.8 , 0.1, 14 ], "rot": [ 0, 0, 0 ], "scale": 0.2, "id": "Лысюк" },
+                    { "path": "/texture/officetable_comp.glb", "pos": [ 28.8 , 0.1, 12 ], "rot": [ 0, 0, 0 ], "scale": 0.2, "id": "Лысюк" },
 
 
 
