@@ -8,15 +8,17 @@
   },
   "services": {
     "server": {
-      "root": "server",
-      "installCommand": "npm install",
-      "startCommand": "npm start",
+      "root": ".",
+      "installCommand": "npm --prefix server install",
+      "buildCommand": "npm --prefix server run build",
+      "startCommand": "npm --prefix server start",
       "port": 8080
     },
     "client": {
-      "root": "client",
-      "installCommand": "npm install && npm run build",
-      "startCommand": "npm run preview -- --host --port 4173",
+      "root": ".",
+      "installCommand": "npm --prefix client install",
+      "buildCommand": "npm --prefix client run build",
+      "startCommand": "npm --prefix client run preview -- --host --port 4173",
       "port": 4173
     }
   }

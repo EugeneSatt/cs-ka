@@ -4,15 +4,16 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "build": "node -e \"console.log('No build step for server')\"",
     "start": "tsx src/index.ts"
   },
   "dependencies": {
+    "tsx": "^4.7.0",
     "ws": "^8.17.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
     "@types/ws": "^8.5.10",
-    "tsx": "^4.7.0",
     "typescript": "^5.4.5"
   }
 }
