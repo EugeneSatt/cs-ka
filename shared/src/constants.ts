@@ -42,9 +42,9 @@ export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', We
     spread: 0,
   },
   sniper: {
-    baseDamage: 80,
+    baseDamage: 150,
     fireRate: 1.2,
-    range: 1200,
+    range: 99999,
     magSize: 5,
     reloadTime: 2.4,
     spread: 0,

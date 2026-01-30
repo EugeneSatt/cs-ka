@@ -25,10 +25,133 @@ import { movePlayer } from '../../shared/src/physics';
 import { directionFromYawPitch, rayIntersectAABB } from '../../shared/src/ray';
 import type { Vec3 } from '../../shared/src/types';
 
+const WEAPON_MODEL_KEYS = ['ak-47', 'awp', 'spas_12', 'beretta'];
+const MODEL_DEFAULTS: Array<{ keys: string[]; box: { min: Vec3; max: Vec3 } }> = [
+  { keys: ['arm_chair', 'armchair', 'office_creslo', 'chair'], box: { min: [-0.5, 0, -0.5], max: [0.5, 1.2, 0.5] } },
+  { keys: ['divan', 'sofa'], box: { min: [-1.2, 0, -0.6], max: [1.2, 1.0, 0.6] } },
+  { keys: ['desk'], box: { min: [-1.0, 0, -0.8], max: [1.0, 1.1, 0.8] } },
+  { keys: ['table'], box: { min: [-1.2, 0, -1.2], max: [1.2, 1.0, 1.2] } },
+  { keys: ['computer'], box: { min: [-0.35, 0, -0.35], max: [0.35, 0.7, 0.35] } },
+  { keys: ['tablet'], box: { min: [-0.25, 0, -0.2], max: [0.25, 0.2, 0.2] } },
+  { keys: ['wardrobe', 'stenka', 'bookshkaf'], box: { min: [-0.8, 0, -0.35], max: [0.8, 2.0, 0.35] } },
+  {
+    keys: ['whiteboard', 'bulletin_board', 'cork_board', 'investigation_board'],
+    box: { min: [-0.7, 0, -0.05], max: [0.7, 1.2, 0.05] },
+  },
+  { keys: ['lavabo', 'toilet'], box: { min: [-0.45, 0, -0.45], max: [0.45, 0.9, 0.45] } },
+  { keys: ['retro_tv', 'tv'], box: { min: [-0.35, 0, -0.2], max: [0.35, 0.6, 0.2] } },
+  { keys: ['alex_mini'], box: { min: [-0.4, 0, -0.4], max: [0.4, 0.7, 0.4] } },
+  { keys: ['black_label'], box: { min: [-0.2, 0, -0.2], max: [0.2, 0.5, 0.2] } },
+];
+const FALLBACK_MODEL_BOX = { min: [-0.5, 0, -0.5], max: [0.5, 0.8, 0.5] };
+
+function modelCollider(model: ModelDef): { min: Vec3; max: Vec3 } | null {
+  if (model.collider) {
+    return model.collider;
+  }
+  const name = model.path.toLowerCase();
+  if (WEAPON_MODEL_KEYS.some((key) => name.includes(key))) {
+    return null;
+  }
+  for (const entry of MODEL_DEFAULTS) {
+    if (entry.keys.some((key) => name.includes(key))) {
+      return entry.box;
+    }
+  }
+  return FALLBACK_MODEL_BOX;
+}
+
+function buildModelHitboxes(map: MapData): BoxDef[] {
+  if (!map.models) {
+    return [];
+  }
+  const extra: BoxDef[] = [];
+  map.models.forEach((model, index) => {
+    const base = modelCollider(model);
+    if (!base) {
+      return;
+    }
+    const scale = model.scale ?? 1;
+    const scaleVec: Vec3 = Array.isArray(scale) ? scale : [scale, scale, scale];
+    const localMin: Vec3 = [
+      base.min[0] * scaleVec[0],
+      base.min[1] * scaleVec[1],
+      base.min[2] * scaleVec[2],
+    ];
+    const localMax: Vec3 = [
+      base.max[0] * scaleVec[0],
+      base.max[1] * scaleVec[1],
+      base.max[2] * scaleVec[2],
+    ];
+    const corners: Vec3[] = [
+      [localMin[0], localMin[1], localMin[2]],
+      [localMin[0], localMin[1], localMax[2]],
+      [localMin[0], localMax[1], localMin[2]],
+      [localMin[0], localMax[1], localMax[2]],
+      [localMax[0], localMin[1], localMin[2]],
+      [localMax[0], localMin[1], localMax[2]],
+      [localMax[0], localMax[1], localMin[2]],
+      [localMax[0], localMax[1], localMax[2]],
+    ];
+    const rot = model.rot ?? [0, 0, 0];
+    const cosX = Math.cos(rot[0]);
+    const sinX = Math.sin(rot[0]);
+    const cosY = Math.cos(rot[1]);
+    const sinY = Math.sin(rot[1]);
+    const cosZ = Math.cos(rot[2]);
+    const sinZ = Math.sin(rot[2]);
+
+    const min: Vec3 = [Infinity, Infinity, Infinity];
+    const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const corner of corners) {
+      let x = corner[0];
+      let y = corner[1];
+      let z = corner[2];
+      if (rot[0] !== 0) {
+        const y1 = y * cosX - z * sinX;
+        const z1 = y * sinX + z * cosX;
+        y = y1;
+        z = z1;
+      }
+      if (rot[1] !== 0) {
+        const x1 = x * cosY + z * sinY;
+        const z1 = -x * sinY + z * cosY;
+        x = x1;
+        z = z1;
+      }
+      if (rot[2] !== 0) {
+        const x1 = x * cosZ - y * sinZ;
+        const y1 = x * sinZ + y * cosZ;
+        x = x1;
+        y = y1;
+      }
+      x += model.pos[0];
+      y += model.pos[1];
+      z += model.pos[2];
+      min[0] = Math.min(min[0], x);
+      min[1] = Math.min(min[1], y);
+      min[2] = Math.min(min[2], z);
+      max[0] = Math.max(max[0], x);
+      max[1] = Math.max(max[1], y);
+      max[2] = Math.max(max[2], z);
+    }
+    extra.push({
+      min,
+      max,
+      color: '#888888',
+      type: 'collider_model',
+      id: `model_${model.path}_${index}`,
+    });
+  });
+  return extra;
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const mapFile = process.env.MAP ?? 'arena.json';
 const mapPath = resolve(__dirname, '../../shared/maps', mapFile);
-const mapData = addModelColliders(JSON.parse(readFileSync(mapPath, 'utf8')) as MapData);
+const rawMap = JSON.parse(readFileSync(mapPath, 'utf8')) as MapData;
+const mapData = rawMap;
+const bulletBoxes = buildModelHitboxes(rawMap);
 
 const PORT = Number(process.env.PORT ?? 8080);
 const wss = new WebSocketServer({ port: PORT });
@@ -39,6 +162,7 @@ type Player = {
   id: string;
   ws: WebSocket;
   name: string;
+  face?: string;
   matchTeam: MatchTeam;
   primary: WeaponType;
   preferredSide?: Side;
@@ -78,6 +202,7 @@ type Grenade = {
 const players = new Map<string, Player>();
 const grenades: Grenade[] = [];
 let nextPlayerId = 1;
+const MAX_FACE_LENGTH = 180_000;
 let nextGrenadeId = 1;
 
 let gameTime = 0;
@@ -769,6 +894,12 @@ function raycastMap(origin: Vec3, dir: Vec3, range: number): number {
       closest = dist;
     }
   }
+  for (const box of bulletBoxes) {
+    const dist = rayIntersectAABB(origin, dir, box.min, box.max);
+    if (dist !== null && dist > MIN_DIST && dist < closest) {
+      closest = dist;
+    }
+  }
   return Math.min(closest, range);
 }
 
@@ -975,10 +1106,14 @@ wss.on('connection', (ws: WebSocket) => {
 
       const id = `p${nextPlayerId++}`;
       playerId = id;
+      const rawFace = typeof message.face === 'string' ? message.face.trim() : '';
+      const face =
+        rawFace && rawFace.startsWith('data:image/') && rawFace.length <= MAX_FACE_LENGTH ? rawFace : undefined;
       const player: Player = {
         id,
         ws,
         name: message.name ?? id,
+        face,
         matchTeam,
         primary: 'rifle',
         preferredSide: message.preferredSide,
@@ -1019,8 +1154,19 @@ wss.on('connection', (ws: WebSocket) => {
           id,
           map: mapData,
           tickRate: TICK_RATE,
+          playersMeta: Array.from(players.values()).map((p) => ({ id: p.id, name: p.name, face: p.face })),
         })
       );
+
+      const metaMessage = JSON.stringify({
+        type: 'player_meta',
+        player: { id: player.id, name: player.name, face: player.face },
+      });
+      for (const other of players.values()) {
+        if (other.id !== player.id) {
+          other.ws.send(metaMessage);
+        }
+      }
 
       return;
     }
@@ -1052,56 +1198,3 @@ wss.on('connection', (ws: WebSocket) => {
 });
 
 console.log(`Server running on ws://localhost:${PORT}`);
-function modelCollider(model: ModelDef): { min: Vec3; max: Vec3 } | null {
-  if (model.collider) {
-    return model.collider;
-  }
-  const name = model.path.toLowerCase();
-  const defaults: Record<string, { min: Vec3; max: Vec3 }> = {
-    'arm_chair': { min: [-0.5, 0, -0.5], max: [0.5, 1.2, 0.5] },
-    'chair': { min: [-0.4, 0, -0.4], max: [0.4, 1.1, 0.4] },
-    'desk': { min: [-1.0, 0, -0.8], max: [1.0, 1.1, 0.8] },
-    'table': { min: [-1.2, 0, -1.2], max: [1.2, 1.0, 1.2] },
-    'computer': { min: [-0.35, 0, -0.35], max: [0.35, 0.7, 0.35] },
-    'tablet': { min: [-0.25, 0, -0.2], max: [0.25, 0.2, 0.2] },
-  };
-  for (const key of Object.keys(defaults)) {
-    if (name.includes(key)) {
-      return defaults[key];
-    }
-  }
-  return null;
-}
-
-function addModelColliders(map: MapData): MapData {
-  if (!map.models) {
-    return map;
-  }
-  const extra: BoxDef[] = [];
-  for (const model of map.models) {
-    const base = modelCollider(model);
-    if (!base) {
-      continue;
-    }
-    const scale = model.scale ?? 1;
-    const scaleVec: Vec3 = Array.isArray(scale) ? scale : [scale, scale, scale];
-    const min: Vec3 = [
-      model.pos[0] + base.min[0] * scaleVec[0],
-      model.pos[1] + base.min[1] * scaleVec[1],
-      model.pos[2] + base.min[2] * scaleVec[2],
-    ];
-    const max: Vec3 = [
-      model.pos[0] + base.max[0] * scaleVec[0],
-      model.pos[1] + base.max[1] * scaleVec[1],
-      model.pos[2] + base.max[2] * scaleVec[2],
-    ];
-    extra.push({
-      min,
-      max,
-      color: '#888888',
-      type: 'collider_model',
-      id: `model_${model.path}`,
-    });
-  }
-  return { ...map, boxes: [...map.boxes, ...extra] };
-}

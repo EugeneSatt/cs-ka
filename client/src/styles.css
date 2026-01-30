@@ -51,11 +51,16 @@ body {
 #score,
 #hp,
 #ammo,
-#grenades {
+#grenades,
+#fps {
   background: var(--panel);
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
+}
+
+#fps {
+  color: var(--cool);
 }
 
 #status {
@@ -151,7 +156,8 @@ body {
 }
 
 .overlay select,
-.overlay button {
+.overlay button,
+.overlay input {
   font-family: inherit;
   font-size: 16px;
   padding: 8px 14px;
@@ -181,6 +187,19 @@ body {
 
 .overlay button:hover {
   filter: brightness(1.05);
+}
+
+.overlay input[type="file"] {
+  font-size: 13px;
+}
+
+.face-preview {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
 }
 
 .hint {

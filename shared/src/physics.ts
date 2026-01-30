@@ -17,9 +17,12 @@ export type MoveInput = {
 const MAX_SPEED = 6;
 const GROUND_ACCEL = 20;
 const AIR_ACCEL = 8;
-const FRICTION = 8;
+const FRICTION = 24;
+const STOP_SPEED = 0.05;
 const JUMP_SPEED = 7;
-const STEP_HEIGHT = 0.6;
+const STEP_HEIGHT = 0;
+const STEP_CHECK_EPS = 0.02;
+const STEP_CHECK_MAX_RISE = 0.4;
 
 export function movePlayer(
   state: PhysicsState,
@@ -55,6 +58,12 @@ export function movePlayer(
     const drop = Math.max(0, 1 - FRICTION * dt);
     vel[0] *= drop;
     vel[2] *= drop;
+    if (Math.abs(vel[0]) < STOP_SPEED) {
+      vel[0] = 0;
+    }
+    if (Math.abs(vel[2]) < STOP_SPEED) {
+      vel[2] = 0;
+    }
   }
 
   const horiz = Math.hypot(vel[0], vel[2]);
@@ -71,7 +80,8 @@ export function movePlayer(
 
   vel[1] += GRAVITY * dt;
 
-  const moved = moveWithCollisions(pos, vel, dt, map);
+  const baseGround = state.onGround ? groundHeightAt(pos, map, pos[1]) : null;
+  const moved = moveWithCollisions(pos, vel, dt, map, state.onGround, move.jump, baseGround);
   const onGround = isOnGround(moved.pos, map);
   if (onGround && moved.vel[1] < 0) {
     moved.vel[1] = 0;
@@ -100,24 +110,48 @@ export function collidesAt(pos: Vec3, map: MapData): boolean {
   return false;
 }
 
-function moveWithCollisions(pos: Vec3, vel: Vec3, dt: number, map: MapData): { pos: Vec3; vel: Vec3 } {
+function moveWithCollisions(
+  pos: Vec3,
+  vel: Vec3,
+  dt: number,
+  map: MapData,
+  onGround: boolean,
+  jumping: boolean,
+  baseGround: number | null
+): { pos: Vec3; vel: Vec3 } {
   let next: Vec3 = [pos[0], pos[1], pos[2]];
 
-  next = moveAxis(next, vel, 0, dt, map);
-  next = moveAxis(next, vel, 1, dt, map);
-  next = moveAxis(next, vel, 2, dt, map);
+  next = moveAxis(next, vel, 0, dt, map, onGround, jumping, baseGround);
+  next = moveAxis(next, vel, 1, dt, map, onGround, jumping, baseGround);
+  next = moveAxis(next, vel, 2, dt, map, onGround, jumping, baseGround);
 
   return { pos: next, vel };
 }
 
-function moveAxis(pos: Vec3, vel: Vec3, axis: 0 | 1 | 2, dt: number, map: MapData): Vec3 {
+function moveAxis(
+  pos: Vec3,
+  vel: Vec3,
+  axis: 0 | 1 | 2,
+  dt: number,
+  map: MapData,
+  onGround: boolean,
+  jumping: boolean,
+  baseGround: number | null
+): Vec3 {
   const next: Vec3 = [pos[0], pos[1], pos[2]];
   next[axis] += vel[axis] * dt;
+  if (axis !== 1 && onGround && !jumping && baseGround !== null) {
+    const nextGround = groundHeightAt(next, map, baseGround);
+    if (nextGround !== null && nextGround - baseGround > STEP_CHECK_EPS) {
+      vel[axis] = 0;
+      return pos;
+    }
+  }
   if (!collidesAt(next, map)) {
     return next;
   }
 
-  if (axis !== 1 && vel[axis] !== 0) {
+  if (STEP_HEIGHT > 0 && axis !== 1 && vel[axis] !== 0) {
     const stepUpPos: Vec3 = [pos[0], pos[1] + STEP_HEIGHT, pos[2]];
     const stepNext: Vec3 = [next[0], next[1] + STEP_HEIGHT, next[2]];
     if (!collidesAt(stepUpPos, map) && !collidesAt(stepNext, map)) {
@@ -145,4 +179,27 @@ function approach(current: number, target: number, delta: number): number {
     return Math.min(current + delta, target);
   }
   return Math.max(current - delta, target);
+}
+
+function groundHeightAt(pos: Vec3, map: MapData, referenceY: number): number | null {
+  const minX = pos[0] - PLAYER_RADIUS;
+  const maxX = pos[0] + PLAYER_RADIUS;
+  const minZ = pos[2] - PLAYER_RADIUS;
+  const maxZ = pos[2] + PLAYER_RADIUS;
+  let best = -Infinity;
+  for (const box of map.boxes) {
+    if (box.type === 'collider_model') {
+      continue;
+    }
+    if (maxX <= box.min[0] || minX >= box.max[0] || maxZ <= box.min[2] || minZ >= box.max[2]) {
+      continue;
+    }
+    if (box.min[1] > referenceY + STEP_CHECK_MAX_RISE) {
+      continue;
+    }
+    if (box.max[1] > best) {
+      best = box.max[1];
+    }
+  }
+  return best === -Infinity ? null : best;
 }

@@ -51,6 +51,7 @@ export type InputPayload = {
 export type ClientJoin = {
   type: 'join';
   name?: string;
+  face?: string;
   primary: WeaponType;
   preferredSide?: Side;
   matchMode?: GameMode;
@@ -91,6 +92,12 @@ export type PlayerSnapshot = {
   crouching: boolean;
   kills: number;
   deaths: number;
+};
+
+export type PlayerMeta = {
+  id: string;
+  name: string;
+  face?: string;
 };
 
 export type GrenadeSnapshot = {
@@ -185,6 +192,12 @@ export type WelcomeMessage = {
   id: string;
   map: MapData;
   tickRate: number;
+  playersMeta?: PlayerMeta[];
 };
 
-export type ServerMessage = WelcomeMessage | ServerSnapshot;
+export type PlayerMetaMessage = {
+  type: 'player_meta';
+  player: PlayerMeta;
+};
+
+export type ServerMessage = WelcomeMessage | ServerSnapshot | PlayerMetaMessage;

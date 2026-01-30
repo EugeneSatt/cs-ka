@@ -9,12 +9,12 @@
   <body>
     <div id="menu" class="overlay">
       <h1>CS Vert</h1>
-      <label for="mode">Р РµР¶РёРј</label>
+      <label for="mode">Mode</label>
       <select id="mode">
-        <option value="team">РљРѕРјР°РЅРґР°</option>
-        <option value="ffa">РћРґРёРЅРѕС‡РєР°</option>
+        <option value="team">Teams</option>
+        <option value="ffa">Free-for-all</option>
       </select>
-      <label for="team-size">Р Р°Р·РјРµСЂ РєРѕРјР°РЅРґС‹</label>
+      <label for="team-size">Team size</label>
       <select id="team-size">
         <option value="1">1 vs 1</option>
         <option value="2">2 vs 2</option>
@@ -27,14 +27,19 @@
         <option value="sniper">Sniper</option>
         <option value="shotgun">Shotgun</option>
       </select>
-      <label for="side">РЎС'Р?С?Р?Р?Р° Р?Р° С?С'Р°С?С'</label>
+      <label for="player-name">Name</label>
+      <input id="player-name" type="text" maxlength="16" placeholder="Player" />
+      <label for="face-upload">Face photo</label>
+      <input id="face-upload" type="file" accept="image/*" />
+      <img id="face-preview" class="face-preview hidden" alt="Face preview" />
+      <label for="side">Team</label>
       <select id="side">
-        <option value="T">РўРµСЂСЂРѕСЂРёСЃС‚С‹</option>
-        <option value="CT">РљРѕРЅС‚СЂ-С‚РµСЂСЂРѕСЂ</option>
+        <option value="T">Terrorists</option>
+        <option value="CT">Counter-Terrorists</option>
       </select>
       <div class="actions">
         <button id="join">Join Match</button>
-        <button id="editor" class="ghost">Р РµРґР°РєС‚РѕСЂ</button>
+        <button id="editor" class="ghost">Editor</button>
       </div>
       <div class="hint">Click in the scene to lock pointer.</div>
     </div>
@@ -44,6 +49,7 @@
         <div id="round">Round -</div>
         <div id="timer">00:00</div>
         <div id="score">A 0 - 0 B</div>
+        <div id="fps">FPS 0</div>
       </div>
       <div id="bottom">
         <div id="hp">HP 100</div>
@@ -53,13 +59,13 @@
       </div>
       <div id="status"></div>
       <div id="buy-menu" class="buy hidden">
-        <div class="buy-title">РџРѕРєСѓРїРєР° (РїРµСЂРІС‹Рµ 10СЃ)</div>
+        <div class="buy-title">Buy (first 10s)</div>
         <div class="buy-row">
-          <button data-primary="rifle">РђРљ-47</button>
-          <button data-primary="sniper">РЎРЅР°Р№РїРµСЂРєР°</button>
-          <button data-primary="shotgun">Р”СЂРѕР±РѕРІРёРє</button>
+          <button data-primary="rifle">AK-47</button>
+          <button data-primary="sniper">Sniper</button>
+          <button data-primary="shotgun">Shotgun</button>
         </div>
-        <div class="buy-hint">B вЂ” РњРµРЅСЋ РїРѕРєСѓРїРєРё, 1/2/3 вЂ” РЎР»РѕС‚С‹</div>
+        <div class="buy-hint">B - Buy menu, 1/2/3 - Slots</div>
       </div>
     </div>
 
