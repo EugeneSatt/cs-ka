@@ -89,6 +89,7 @@ const textureCache = new Map<string, THREE.Texture>();
 const gltfLoader = new GLTFLoader();
 const gltfCache = new Map<string, Promise<THREE.Group>>();
 const mapMaterialCache = new Map<string, THREE.MeshLambertMaterial>();
+const decalMaterialCache = new Map<string, THREE.MeshBasicMaterial>();
 const mapGeometryCache = new Map<string, THREE.BoxGeometry>();
 const ktx2Loader = new KTX2Loader().setTranscoderPath('/basis/');
 ktx2Loader.detectSupport(renderer);
@@ -709,6 +710,67 @@ function getMapMaterial(texturePath?: string, color?: string): THREE.MeshLambert
     mapMaterialCache.set(key, material);
   }
   return material;
+}
+
+function getDecalMaterial(src: string): THREE.MeshBasicMaterial {
+  const key = `decal:${src}`;
+  let material = decalMaterialCache.get(key);
+  if (!material) {
+    const texture = textureLoader.load(encodeURI(src));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = Math.min(MAX_ANISOTROPY, renderer.capabilities.getMaxAnisotropy?.() ?? 1);
+    material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    });
+    material.side = THREE.FrontSide;
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = -1;
+    material.polygonOffsetUnits = -1;
+    decalMaterialCache.set(key, material);
+  }
+  return material;
+}
+
+function addDecals(map: MapData, group: THREE.Group) {
+  if (!map.decals || map.decals.length === 0) {
+    return;
+  }
+  const baseNormal = new THREE.Vector3(0, 0, 1);
+  for (const decal of map.decals) {
+    const width = Math.max(0.01, decal.size[0]);
+    const height = Math.max(0.01, decal.size[1]);
+    const geometry = new THREE.PlaneGeometry(width, height);
+    const material = getDecalMaterial(decal.src);
+    const mesh = new THREE.Mesh(geometry, material);
+    const normal = new THREE.Vector3(
+      decal.normal?.[0] ?? 0,
+      decal.normal?.[1] ?? 0,
+      decal.normal?.[2] ?? 1
+    );
+    if (normal.lengthSq() < 1e-6) {
+      normal.copy(baseNormal);
+    } else {
+      normal.normalize();
+    }
+    mesh.quaternion.setFromUnitVectors(baseNormal, normal);
+    if (decal.rotation) {
+      const rotQuat = new THREE.Quaternion().setFromAxisAngle(normal, decal.rotation);
+      mesh.quaternion.multiply(rotQuat);
+    }
+    const offset = decal.offset ?? 0.01;
+    mesh.position.set(
+      decal.pos[0] + normal.x * offset,
+      decal.pos[1] + normal.y * offset,
+      decal.pos[2] + normal.z * offset
+    );
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    group.add(mesh);
+  }
 }
 
 function getBoxGeometry(size: THREE.Vector3, repeatU: number, repeatV: number): THREE.BoxGeometry {
@@ -1371,6 +1433,7 @@ function buildMap(map: MapData) {
       });
     }
   }
+  addDecals(map, group);
   scene.add(group);
   mapGroup = group;
 

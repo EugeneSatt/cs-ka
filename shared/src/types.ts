@@ -22,10 +22,21 @@ export type ModelDef = {
   };
 };
 
+export type DecalDef = {
+  id?: string;
+  src: string;
+  pos: Vec3;
+  size: [number, number];
+  normal?: Vec3;
+  offset?: number;
+  rotation?: number;
+};
+
 export type MapData = {
   name: string;
   boxes: BoxDef[];
   models?: ModelDef[];
+  decals?: DecalDef[];
   spawns: {
     T: Vec3[];
     CT: Vec3[];
