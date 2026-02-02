@@ -81,7 +81,7 @@ renderer.setClearColor(0x0c1014);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 200);
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.01, 200);
 camera.rotation.order = 'YXZ';
 scene.add(camera);
 const textureLoader = new THREE.TextureLoader();
@@ -162,35 +162,8 @@ type HeldWeaponConfig = {
 const FIRST_PERSON_WEAPONS: Partial<Record<ViewWeaponType, WeaponViewConfig>> = {
   rifle: {
     path: '/ak-47.glb',
-    pos: [0.06, -0.22, -0.45],
-    rot: [-0.05, Math.PI, 0],
-    scale: 0.95,
-  },
-  pistol: {
-    path: '/beretta.glb',
-    pos: [0.05, -0.2, -0.4],
-    rot: [-0.02, Math.PI, 0],
-    scale: 0.55,
-  },
-  sniper: {
-    path: '/awp.glb',
-    pos: [0.05, -0.25, -0.5],
-    rot: [-0.02, Math.PI, 0],
-    scale: 0.9,
-  },
-  shotgun: {
-    path: '/spas_12.glb',
-    pos: [0.06, -0.22, -0.45],
-    rot: [-0.03, Math.PI, 0],
-    scale: 0.9,
-  },
-};
-
-const HELD_WEAPONS: Partial<Record<ViewWeaponType, HeldWeaponConfig>> = {
-  rifle: {
-    path: '/ak-47.glb',
-    pos: [0, 1.1, -0.35],
-    rot: [0, Math.PI, 0],
+    pos: [2.5, 1.1, 2],
+    rot: [0, 1.6, 0],
     scale: 0.55,
   },
   pistol: {
@@ -201,7 +174,34 @@ const HELD_WEAPONS: Partial<Record<ViewWeaponType, HeldWeaponConfig>> = {
   },
   sniper: {
     path: '/awp.glb',
-    pos: [0, 1.12, -0.38],
+    pos: [0, 1.12, -2],
+    rot: [0, Math.PI, 0],
+    scale: 0.6,
+  },
+  shotgun: {
+    path: '/spas_12.glb',
+    pos: [0, 1.1, -0.35],
+    rot: [0, Math.PI, 0],
+    scale: 0.58,
+  },
+};
+
+const HELD_WEAPONS: Partial<Record<ViewWeaponType, HeldWeaponConfig>> = {
+  rifle: {
+    path: '/ak-47.glb',
+    pos: [2.5, 1.1, 2],
+    rot: [0, 1.6, 0],
+    scale: 0.55,
+  },
+  pistol: {
+    path: '/beretta.glb',
+    pos: [0, 1.05, -0.28],
+    rot: [0, Math.PI, 0],
+    scale: 0.5,
+  },
+  sniper: {
+    path: '/awp.glb',
+    pos: [0, 1.12, -2],
     rot: [0, Math.PI, 0],
     scale: 0.6,
   },
@@ -264,6 +264,7 @@ let buyOpen = false;
 let crosshairHitTimeout: number | null = null;
 let spectateId: string | null = null;
 const viewWeaponGroup = new THREE.Group();
+viewWeaponGroup.frustumCulled = false;
 camera.add(viewWeaponGroup);
 viewWeaponGroup.renderOrder = 100;
 let viewWeaponType: ViewWeaponType | null = null;
@@ -1069,6 +1070,9 @@ function setHeldWeapon(parts: HumanoidParts, type: ViewWeaponType | null) {
         config.pos[1] - center.y * scaleVec.y,
         config.pos[2] - center.z * scaleVec.z
       );
+      if (instance.position.z > -0.2) {
+        instance.position.z = -0.2;
+      }
       instance.rotation.set(config.rot[0], config.rot[1], config.rot[2]);
       parts.weaponGroup.add(instance);
     })
@@ -2154,11 +2158,11 @@ function updateRemotePlayers(renderTime: number) {
       const swing = Math.sin(renderTime * 8 + id.charCodeAt(0)) * 0.9 * speedFactor;
       parts.leftLeg.rotation.x = swing;
       parts.rightLeg.rotation.x = -swing;
-      const holdAngle = -1.05;
+      const holdAngle = 1.05;
       parts.leftArm.rotation.x = holdAngle - swing * 0.25;
       parts.rightArm.rotation.x = holdAngle + swing * 0.25;
-      parts.leftArm.rotation.z = 0.3;
-      parts.rightArm.rotation.z = -0.3;
+      parts.leftArm.rotation.z = -0.3;
+      parts.rightArm.rotation.z = 0.3;
       const headPitch = clamp(sample.pitch, -0.7, 0.7);
       parts.head.rotation.x = headPitch;
       const heldType: ViewWeaponType | null =
