@@ -151,7 +151,6 @@ const mapFile = process.env.MAP ?? 'arena.json';
 const mapPath = resolve(__dirname, '../../shared/maps', mapFile);
 const rawMap = JSON.parse(readFileSync(mapPath, 'utf8')) as MapData;
 const mapData = rawMap;
-const bulletBoxes = buildModelHitboxes(rawMap);
 
 const PORT = Number(process.env.PORT ?? 8080);
 const wss = new WebSocketServer({ port: PORT });
@@ -815,10 +814,17 @@ function tryShoot(player: Player) {
 
   player.nextFireTime = now + 1 / config.fireRate;
 
+  const viewHeight = player.crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
+  const viewOrigin: Vec3 = [player.pos[0], player.pos[1] + viewHeight, player.pos[2]];
+  const viewDir = directionFromYawPitch(player.yaw, player.pitch);
+  const right: Vec3 = [Math.cos(player.yaw), 0, -Math.sin(player.yaw)];
+  const muzzleOffset = weaponType === 'sniper' ? 0.45 : weaponType === 'shotgun' ? 0.35 : 0.3;
+  const sideOffset = weaponType === 'pistol' ? 0.08 : 0.12;
+  const upOffset = 0.03;
   const origin: Vec3 = [
-    player.pos[0],
-    player.pos[1] + (player.crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT),
-    player.pos[2],
+    viewOrigin[0] + viewDir[0] * muzzleOffset + right[0] * sideOffset,
+    viewOrigin[1] + upOffset,
+    viewOrigin[2] + viewDir[2] * muzzleOffset + right[2] * sideOffset,
   ];
 
   if (weaponType === 'shotgun') {
@@ -889,12 +895,6 @@ function raycastMap(origin: Vec3, dir: Vec3, range: number): number {
   let closest = Infinity;
   const MIN_DIST = 0.02;
   for (const box of mapData.boxes) {
-    const dist = rayIntersectAABB(origin, dir, box.min, box.max);
-    if (dist !== null && dist > MIN_DIST && dist < closest) {
-      closest = dist;
-    }
-  }
-  for (const box of bulletBoxes) {
     const dist = rayIntersectAABB(origin, dir, box.min, box.max);
     if (dist !== null && dist > MIN_DIST && dist < closest) {
       closest = dist;

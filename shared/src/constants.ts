@@ -36,7 +36,7 @@ export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', We
   rifle: {
     baseDamage: 30,
     fireRate: 10,
-    range: 1000,
+    range: 99999,
     magSize: 30,
     reloadTime: 1.8,
     spread: 0,
@@ -52,16 +52,16 @@ export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', We
   shotgun: {
     baseDamage: 8,
     fireRate: 1,
-    range: 120,
+    range: 99999,
     magSize: 8,
     reloadTime: 2.6,
-    spread: 0,
+    spread: 0.12,
     pellets: 8,
   },
   pistol: {
     baseDamage: 18,
     fireRate: 4,
-    range: 250,
+    range: 99999,
     magSize: 12,
     reloadTime: 1.4,
     spread: 0,

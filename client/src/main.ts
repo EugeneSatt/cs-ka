@@ -138,10 +138,10 @@ const PITCH_LIMIT = 1.5;
 const RECOIL_RETURN_SPEED = 14;
 const RECOIL_MAX = 0.35;
 const RECOIL_KICK: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', number> = {
-  rifle: 0.03,
-  sniper: 0,
-  shotgun: 0.06,
-  pistol: 0.02,
+  rifle: 0.04,
+  sniper: 0.1,
+  shotgun: 0.08,
+  pistol: 0.03,
 };
 
 type WeaponViewConfig = {
@@ -162,7 +162,7 @@ type HeldWeaponConfig = {
 const FIRST_PERSON_WEAPONS: Partial<Record<ViewWeaponType, WeaponViewConfig>> = {
   rifle: {
     path: '/ak-47.glb',
-    pos: [2.5, 1.1, 2],
+    pos: [4.7, -0.6, 4.5],
     rot: [0, 1.6, 0],
     scale: 0.55,
   },
@@ -174,25 +174,25 @@ const FIRST_PERSON_WEAPONS: Partial<Record<ViewWeaponType, WeaponViewConfig>> = 
   },
   sniper: {
     path: '/awp.glb',
-    pos: [0, 1.12, -2],
-    rot: [0, Math.PI, 0],
+    pos: [0, -0.5, -3.6],
+    rot: [0, 3.2, 0],
     scale: 0.6,
   },
   shotgun: {
     path: '/spas_12.glb',
-    pos: [0, 1.1, -0.35],
-    rot: [0, Math.PI, 0],
+    pos: [0.3, -0.5, -0.5],
+    rot: [0, 0, 0],
     scale: 0.58,
   },
 };
 
 const HELD_WEAPONS: Partial<Record<ViewWeaponType, HeldWeaponConfig>> = {
-  rifle: {
-    path: '/ak-47.glb',
-    pos: [2.5, 1.1, 2],
-    rot: [0, 1.6, 0],
-    scale: 0.55,
-  },
+  // rifle: {
+  //   path: '/ak-47.glb',
+  //   pos: [2.5, 1.1, 3],
+  //   rot: [0, 1.6, 0],
+  //   scale: 0.55,
+  // },
   pistol: {
     path: '/beretta.glb',
     pos: [0, 1.05, -0.28],
@@ -270,6 +270,9 @@ viewWeaponGroup.renderOrder = 100;
 let viewWeaponType: ViewWeaponType | null = null;
 let viewWeaponRequest = 0;
 let weaponBobPhase = 0;
+let viewWeaponKick = 0;
+let lastViewWeaponShot = 0;
+
 
 type EditorSession = {
   active: boolean;
@@ -1003,24 +1006,6 @@ function setViewWeapon(type: ViewWeaponType | null) {
           }
         }
       });
-      if (drawHitbox) {
-        const hitGeo = new THREE.BoxGeometry(hitSize.x, hitSize.y, hitSize.z);
-        const hitMat = new THREE.MeshBasicMaterial({
-          color: 0x00ff66,
-          wireframe: true,
-          transparent: true,
-          opacity: 0.45,
-          depthTest: false,
-          depthWrite: false,
-        });
-        const hitMesh = new THREE.Mesh(hitGeo, hitMat);
-        hitMesh.position.copy(hitCenter);
-        hitMesh.renderOrder = 101;
-        hitMesh.frustumCulled = false;
-        hitMesh.matrixAutoUpdate = false;
-        hitMesh.updateMatrix();
-        instance.add(hitMesh);
-      }
       viewWeaponGroup.add(instance);
     })
     .catch((err) => console.warn('Failed to load view weapon', config.path, err));
@@ -1696,7 +1681,7 @@ function createPlayerMesh(side: Side): THREE.Group {
 
   const baseGeo = new THREE.SphereGeometry(1, 18, 12);
   const limbGeo = new THREE.SphereGeometry(1, 14, 10);
-  const headGeo = new THREE.BoxGeometry(0.44, 0.48, 0.44);
+  const headGeo = new THREE.BoxGeometry(0.38, 0.42, 0.38);
 
   const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.7, metalness: 0.1 });
   const limbMat = new THREE.MeshStandardMaterial({ color: limbColor, roughness: 0.8, metalness: 0.05 });
@@ -1713,7 +1698,7 @@ function createPlayerMesh(side: Side): THREE.Group {
   headMesh.position.set(0, 0.16, 0);
   headPivot.add(headMesh);
   const facePlane = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.44, 0.48),
+    new THREE.PlaneGeometry(0.38, 0.42),
     new THREE.MeshStandardMaterial({
       color: 0xffffff,
       transparent: true,
@@ -1723,7 +1708,7 @@ function createPlayerMesh(side: Side): THREE.Group {
       depthWrite: false,
     })
   );
-  facePlane.position.set(0, 0.16, -0.23);
+  facePlane.position.set(0, 0.16, -0.2);
   facePlane.rotation.y = Math.PI;
   facePlane.renderOrder = 120;
   facePlane.frustumCulled = false;
@@ -1733,7 +1718,7 @@ function createPlayerMesh(side: Side): THREE.Group {
   const leftArmPivot = new THREE.Group();
   leftArmPivot.position.set(-0.38, 1.15, 0);
   const leftArm = new THREE.Mesh(limbGeo, limbMat);
-  leftArm.scale.set(0.12, 0.35, 0.12);
+  leftArm.scale.set(0.09, 0.35, 0.09);
   leftArm.position.set(0, -0.25, 0);
   leftArmPivot.add(leftArm);
   group.add(leftArmPivot);
@@ -1741,10 +1726,31 @@ function createPlayerMesh(side: Side): THREE.Group {
   const rightArmPivot = new THREE.Group();
   rightArmPivot.position.set(0.38, 1.15, 0);
   const rightArm = new THREE.Mesh(limbGeo, limbMat);
-  rightArm.scale.set(0.12, 0.35, 0.12);
+  rightArm.scale.set(0.09, 0.35, 0.09);
   rightArm.position.set(0, -0.25, 0);
   rightArmPivot.add(rightArm);
   group.add(rightArmPivot);
+
+
+  const fingerGeo = new THREE.BoxGeometry(0.03, 0.12, 0.03);
+  const fingerMat = limbMat;
+  const leftFingers = new THREE.Group();
+  leftFingers.position.set(0, -0.52, 0.06);
+  for (let i = 0; i < 3; i += 1) {
+    const finger = new THREE.Mesh(fingerGeo, fingerMat);
+    finger.position.set(-0.04 + i * 0.04, -0.06, 0);
+    leftFingers.add(finger);
+  }
+  leftArmPivot.add(leftFingers);
+
+  const rightFingers = new THREE.Group();
+  rightFingers.position.set(0, -0.52, 0.06);
+  for (let i = 0; i < 3; i += 1) {
+    const finger = new THREE.Mesh(fingerGeo, fingerMat);
+    finger.position.set(-0.04 + i * 0.04, -0.06, 0);
+    rightFingers.add(finger);
+  }
+  rightArmPivot.add(rightFingers);
 
   const leftLegPivot = new THREE.Group();
   leftLegPivot.position.set(-0.16, 0.55, 0);
@@ -1763,7 +1769,34 @@ function createPlayerMesh(side: Side): THREE.Group {
   group.add(rightLegPivot);
 
   const weaponGroup = new THREE.Group();
-  group.add(weaponGroup);
+  rightArmPivot.add(weaponGroup);
+
+  const hitboxMat = new THREE.MeshBasicMaterial({
+    color: 0x00ff66,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.35,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const torsoHit = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.7, 0.32), hitboxMat);
+  torsoHit.position.set(0, 1.0, 0);
+  group.add(torsoHit);
+  const headHit = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.42, 0.38), hitboxMat);
+  headHit.position.set(0, 1.58, 0);
+  group.add(headHit);
+  const leftArmHit = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), hitboxMat);
+  leftArmHit.position.set(-0.38, 0.9, 0);
+  group.add(leftArmHit);
+  const rightArmHit = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), hitboxMat);
+  rightArmHit.position.set(0.38, 0.9, 0);
+  group.add(rightArmHit);
+  const leftLegHit = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), hitboxMat);
+  leftLegHit.position.set(-0.16, 0.25, 0);
+  group.add(leftLegHit);
+  const rightLegHit = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), hitboxMat);
+  rightLegHit.position.set(0.16, 0.25, 0);
+  group.add(rightLegHit);
 
   group.userData.parts = {
     head: headPivot,
@@ -1896,6 +1929,7 @@ function persistEditorSession(nowMs: number) {
 function updateRecoil(dt: number) {
   const t = clamp(RECOIL_RETURN_SPEED * dt, 0, 1);
   recoilPitch = lerp(recoilPitch, 0, t);
+  viewWeaponKick = lerp(viewWeaponKick, 0, clamp(10 * dt, 0, 1));
 }
 
 function updateScope(forceOff = false) {
@@ -1948,8 +1982,11 @@ function applyRecoil(nowSeconds: number) {
     return;
   }
 
-  recoilPitch = clamp(recoilPitch - RECOIL_KICK[weaponType], -RECOIL_MAX, 0);
+  recoilPitch = clamp(recoilPitch + RECOIL_KICK[weaponType], 0, RECOIL_MAX);
   lastRecoilTime = nowSeconds;
+  viewWeaponKick = clamp(viewWeaponKick + RECOIL_KICK[weaponType] * 1.8, 0, 0.35);
+  lastViewWeaponShot = nowSeconds;
+
 }
 
 function getViewAngles(): { yaw: number; pitch: number } {
@@ -1978,7 +2015,15 @@ function sendInput(dt: number) {
   }
 
   const view = getViewAngles();
+  if (localState.alive && currentWeapon !== 'grenade') {
+    const weaponType = currentWeapon === 'primary' ? localState.primary : 'pistol';
+    const ammo = weaponType === 'pistol' ? localState.ammo.pistol : localState.ammo.primary;
+    if (ammo <= 0) {
+      inputState.reload = true;
+    }
+  }
   const payload: InputPayload = {
+
     seq: inputSeq++,
     dt: clamp(dt, 0.001, 0.05),
     move: { f: clamp(inputState.forward, -1, 1), s: clamp(inputState.strafe, -1, 1) },
@@ -2071,8 +2116,9 @@ function render() {
   viewWeaponGroup.visible = showWeapon;
   setViewWeapon(showWeapon ? activeViewWeapon : null);
   if (showWeapon) {
-    viewWeaponGroup.position.set(0, 0, 0);
-    viewWeaponGroup.rotation.set(0, 0, 0);
+    const kick = viewWeaponKick;
+    viewWeaponGroup.position.set(0, -kick * 0.15, kick * 0.6);
+    viewWeaponGroup.rotation.set(-kick * 0.9, 0, 0);
   } else {
     viewWeaponGroup.position.set(0, 0, 0);
     viewWeaponGroup.rotation.set(0, 0, 0);
@@ -2158,11 +2204,13 @@ function updateRemotePlayers(renderTime: number) {
       const swing = Math.sin(renderTime * 8 + id.charCodeAt(0)) * 0.9 * speedFactor;
       parts.leftLeg.rotation.x = swing;
       parts.rightLeg.rotation.x = -swing;
-      const holdAngle = 1.05;
-      parts.leftArm.rotation.x = holdAngle - swing * 0.25;
-      parts.rightArm.rotation.x = holdAngle + swing * 0.25;
-      parts.leftArm.rotation.z = -0.3;
-      parts.rightArm.rotation.z = 0.3;
+      const holdAngle = 0.85;
+      parts.leftArm.rotation.x = holdAngle - swing * 0.2;
+      parts.rightArm.rotation.x = holdAngle + swing * 0.2;
+      parts.leftArm.rotation.z = 0.35;
+      parts.rightArm.rotation.z = -0.45;
+      parts.leftArm.rotation.y = 0.1;
+      parts.rightArm.rotation.y = -0.2;
       const headPitch = clamp(sample.pitch, -0.7, 0.7);
       parts.head.rotation.x = headPitch;
       const heldType: ViewWeaponType | null =

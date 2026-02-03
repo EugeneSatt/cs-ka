@@ -20,9 +20,9 @@ const AIR_ACCEL = 8;
 const FRICTION = 24;
 const STOP_SPEED = 0.05;
 const JUMP_SPEED = 7;
-const STEP_HEIGHT = 0;
-const STEP_CHECK_EPS = 0.02;
-const STEP_CHECK_MAX_RISE = 0.4;
+const STEP_HEIGHT = 0.35;
+const STEP_CHECK_EPS = 0.18;
+const STEP_CHECK_MAX_RISE = 0.55;
 
 export function movePlayer(
   state: PhysicsState,

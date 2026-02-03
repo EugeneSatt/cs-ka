@@ -316,27 +316,33 @@
     {"path": "/texture/officetable_comp.glb", "pos": [11.5, 0.1, 0], "rot": [0, 0, 0], "scale": 0.2, "id": "Вискас"},
     {"path": "/texture/officetable_comp.glb", "pos": [11.5, 0.1, -2], "rot": [0, 0, 0], "scale": 0.2, "id": "Вискас"},
     {"path": "/texture/officetable_comp.glb", "pos": [17, 0.1, 0], "rot": [0, 0, 0], "scale": 0.2, "id": "Напротив Барбарчук"},
-    {"path": "/texture/officetable_comp.glb", "pos": [17, 0.1, -2], "rot": [0, 0, 0], "scale": 0.2, "id": "Напротив Барбарчук"}
+    {"path": "/texture/officetable_comp.glb", "pos": [17, 0.1, -2], "rot": [0, 0, 0], "scale": 0.2, "id": "Напротив Барбарчук"},
+    {"path": "/texture/water.glb", "pos": [7.6, 0.4, 10.5], "rot": [0, 3.2, 0], "scale": 0.35, "id": "Напротив Барбарчук"},
+    {"path": "/texture/coffee.glb", "pos": [-4, 1.5, -8], "rot": [0, 0, 0], "scale": 0.2, "id": "Напротив Барбарчук"},
+    {"path": "/texture/stalin.glb", "pos": [17, 1, -2], "rot": [0, 0, 0], "scale": 0.5, "id": "Напротив Барбарчук"}
+
+
+
+
   ],
   "decals": [
-    {
-      "id": "poster_team",
-      "src": "/Косме.jpg",
-      "pos": [
-        0,
-        1.6,
-        -3.5
-      ],
-      "size": [
-        2.8,
-        2.8
-      ],
-      "normal": [
-        1,
-        0,
-        0
-      ],
-      "offset": 0.02
-    }
+    {"id": "poster_team","src": "/Косме.jpg","pos": [0, 1.6,-3.5],"size": [2.8,2.8],"normal": [1,0,0],"offset": 0.02},
+    {"id": "poster_team","src": "/vertpost.jpg","pos": [-6, 2,10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
+    {"id": "poster_team","src": "/vertpost.jpg","pos": [14, 2,10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
+    {"id": "poster_team","src": "/vertpost.jpg","pos": [16, 2,-10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
+    {"id": "poster_team","src": "/bunker.jpg","pos": [-0.5, 2,10],"size": [0.5,0.2],"normal": [0,0,0],"offset": 0.02},
+    {"id": "poster_team","src": "/cosmodrom.jpg","pos": [-13, 2,4.5],"size": [0.5,0.2],"normal": [1,0,0],"offset": 0.02},
+    {"id": "poster_team","src": "/прием.png","pos": [-5, 1.5,-8],"size": [0.4,0.6],"normal": [0,0,-1],"offset": 0.02},
+    {"id": "poster_team","src": "/прием.png","pos": [11, 2,14.5],"size": [0.4,0.6],"normal": [0,0,-1],"offset": 0.02},
+        {"id": "poster_team","src": "/юдж.jpg","pos": [8.5, 1.5,10.05],"size": [0.2,0.3],"normal": [0,0,0],"offset": 0.02}
+
+
+
+
+
+
+
+
+
   ]
 }
