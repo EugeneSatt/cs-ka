@@ -20,9 +20,9 @@ const AIR_ACCEL = 8;
 const FRICTION = 24;
 const STOP_SPEED = 0.05;
 const JUMP_SPEED = 7;
-const STEP_HEIGHT = 0.35;
-const STEP_CHECK_EPS = 0.18;
-const STEP_CHECK_MAX_RISE = 0.55;
+const STEP_HEIGHT = 0.45;
+const STEP_CHECK_EPS = 0.12;
+const STEP_CHECK_MAX_RISE = 0.65;
 
 export function movePlayer(
   state: PhysicsState,
@@ -140,13 +140,6 @@ function moveAxis(
 ): Vec3 {
   const next: Vec3 = [pos[0], pos[1], pos[2]];
   next[axis] += vel[axis] * dt;
-  if (axis !== 1 && onGround && !jumping && baseGround !== null) {
-    const nextGround = groundHeightAt(next, map, baseGround);
-    if (nextGround !== null && nextGround - baseGround > STEP_CHECK_EPS) {
-      vel[axis] = 0;
-      return pos;
-    }
-  }
   if (!collidesAt(next, map)) {
     return next;
   }
@@ -155,6 +148,11 @@ function moveAxis(
     const stepUpPos: Vec3 = [pos[0], pos[1] + STEP_HEIGHT, pos[2]];
     const stepNext: Vec3 = [next[0], next[1] + STEP_HEIGHT, next[2]];
     if (!collidesAt(stepUpPos, map) && !collidesAt(stepNext, map)) {
+      const nextGround = onGround && baseGround !== null ? groundHeightAt(stepNext, map, baseGround) : null;
+      if (nextGround !== null && nextGround - baseGround > STEP_CHECK_MAX_RISE) {
+        vel[axis] = 0;
+        return pos;
+      }
       return stepNext;
     }
   }

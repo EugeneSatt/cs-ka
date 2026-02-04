@@ -115,9 +115,13 @@
     {"min": [10, 2.6, 20.25], "max": [14, 2.8, 25], "type": "stair_step", "id": "Лестница основа"},
     {"min": [10, 2.8, 20.5], "max": [14, 3, 25], "type": "stair_step", "id": "Лестница основа"},
         {"min": [10, 2.8, 20.75], "max": [18, 3.2, 25], "type": "stair_step", "id": "Лестница основа"},
+            {"min": [-4.5, 0,-8.4], "max": [-3.5, 1.2, -7.7], "type": "block",  "id": "неблок ВЧикнаева косметика стол", "color": "#FFDEAD" },
+
 
 
    {"min": [3, 0, 15], "max": [5, 1, 16], "type": "block",  "id": "неблок rкресло тумба аналитики", "color": "#FF0000" },
+      {"min": [7, 0, 10], "max": [8, 2, 10.75], "type": "block",  "id": "неблок вода", "color": "#FF0000" },
+
    {"min": [5, 0, 17.2], "max": [7.5, 1, 20.3], "type": "block",  "id": "неблок серый дима юля ксе аналитики", "color": "#FF0000" },
     {"min": [2.5, 0, 21.7], "max": [3.5, 1, 25], "type": "block",  "id": "неблок юджин аналитики", "color": "#FF0000" },
     {"min": [5.7, 0, 22], "max": [9, 1, 23],  "type": "collider_model",  "id": "неблок крис аналитики", "color": "#FF0000" },
@@ -319,7 +323,12 @@
     {"path": "/texture/officetable_comp.glb", "pos": [17, 0.1, -2], "rot": [0, 0, 0], "scale": 0.2, "id": "Напротив Барбарчук"},
     {"path": "/texture/water.glb", "pos": [7.6, 0.4, 10.5], "rot": [0, 3.2, 0], "scale": 0.35, "id": "Напротив Барбарчук"},
     {"path": "/texture/coffee.glb", "pos": [-4, 1.5, -8], "rot": [0, 0, 0], "scale": 0.2, "id": "Напротив Барбарчук"},
-    {"path": "/texture/stalin.glb", "pos": [17, 1, -2], "rot": [0, 0, 0], "scale": 0.5, "id": "Напротив Барбарчук"}
+      {"path": "/texture/komodd.glb", "pos": [-12.5, 0.2, 10], "rot": [0, 1.6, 0], "scale": 1, "id": "Напротив Барбарчук"},
+      {"path": "/texture/tv.glb", "pos": [17, 0.05, 6], "rot": [0, 0, 0], "scale": 0.2, "id": "Напротив Барбарчук"},
+            {"path": "/texture/5l.glb", "pos": [17, 0.05, 6], "rot": [0, 0, 0], "scale": 0.6, "id": "Напротив Барбарчук"}
+
+
+
 
 
 
@@ -332,9 +341,11 @@
     {"id": "poster_team","src": "/vertpost.jpg","pos": [16, 2,-10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
     {"id": "poster_team","src": "/bunker.jpg","pos": [-0.5, 2,10],"size": [0.5,0.2],"normal": [0,0,0],"offset": 0.02},
     {"id": "poster_team","src": "/cosmodrom.jpg","pos": [-13, 2,4.5],"size": [0.5,0.2],"normal": [1,0,0],"offset": 0.02},
-    {"id": "poster_team","src": "/прием.png","pos": [-5, 1.5,-8],"size": [0.4,0.6],"normal": [0,0,-1],"offset": 0.02},
-    {"id": "poster_team","src": "/прием.png","pos": [11, 2,14.5],"size": [0.4,0.6],"normal": [0,0,-1],"offset": 0.02},
-        {"id": "poster_team","src": "/юдж.jpg","pos": [8.5, 1.5,10.05],"size": [0.2,0.3],"normal": [0,0,0],"offset": 0.02}
+    {"id": "poster_team","src": "/прием.png","pos": [-5, 1.5,-7.8],"size": [0.4,0.6],"normal": [0,0,-1],"offset": 0.02},
+    {"id": "poster_team","src": "/прием.png","pos": [11, 2,14.7],"size": [0.4,0.6],"normal": [0,0,-1],"offset": 0.02},
+    {"id": "poster_team","src": "/юдж.jpg","pos": [8.5, 1.5,10.05],"size": [0.2,0.3],"normal": [0,0,0],"offset": 0.02},
+    {"id": "poster_team","src": "/план.png","pos": [17.05, 1.1,6.52],"size": [0.88,0.65],"normal": [0,0,0],"offset": 0.02}
+
 
 
 
