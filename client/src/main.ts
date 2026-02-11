@@ -86,6 +86,7 @@ camera.rotation.order = 'YXZ';
 scene.add(camera);
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, THREE.Texture>();
+const textureLoadPromises = new Map<string, Promise<THREE.Texture>>();
 const gltfLoader = new GLTFLoader();
 const gltfCache = new Map<string, Promise<THREE.Group>>();
 const mapMaterialCache = new Map<string, THREE.MeshLambertMaterial>();
@@ -224,9 +225,12 @@ let inMatch = false;
 let leavingMatch = false;
 let cleanedUp = false;
 let inEditor = false;
+let mapLoadToken = 0;
 
 const pendingInputs: InputPayload[] = [];
 let inputSeq = 0;
+
+const JOIN_LABEL = 'Join Match';
 
 const localState = {
   pos: [0, 0.1, 0] as Vec3,
@@ -329,9 +333,15 @@ function connect() {
   const envUrl = (import.meta as any).env?.VITE_WS_URL as string | undefined;
   const wsUrl = serverParam ?? envUrl ?? `ws://${window.location.hostname}:8080`;
 
+  hudStatus.textContent = 'Connecting...';
+  joinButton.disabled = true;
+  joinButton.textContent = 'Connecting...';
+
   socket = new WebSocket(wsUrl);
 
   socket.addEventListener('open', () => {
+    joinButton.disabled = false;
+    joinButton.textContent = JOIN_LABEL;
     const name = nameInput?.value.trim();
     const join = {
       type: 'join',
@@ -345,19 +355,39 @@ function connect() {
     socket?.send(JSON.stringify(join));
   });
 
+  socket.addEventListener('error', () => {
+    hudStatus.textContent = 'Connection error.';
+    joinButton.disabled = false;
+    joinButton.textContent = JOIN_LABEL;
+  });
+
   socket.addEventListener('message', (event) => {
     const msg = JSON.parse(event.data) as ServerMessage;
     if (msg.type === 'welcome') {
+      const token = ++mapLoadToken;
       clientId = msg.id;
       mapData = msg.map;
-      buildMap(msg.map);
-      inMatch = true;
-      menu.style.display = 'none';
-      if (msg.playersMeta) {
-        for (const meta of msg.playersMeta) {
-          playerFaces.set(meta.id, meta.face ?? null);
-        }
-      }
+      hudStatus.textContent = 'Loading map...';
+      preloadMapAssets(msg.map)
+        .then(() => {
+          if (mapLoadToken !== token || !mapData) {
+            return;
+          }
+          buildMap(msg.map);
+          inMatch = true;
+          menu.style.display = 'none';
+          if (msg.playersMeta) {
+            for (const meta of msg.playersMeta) {
+              playerFaces.set(meta.id, meta.face ?? null);
+            }
+          }
+        })
+        .catch(() => {
+          if (mapLoadToken !== token) {
+            return;
+          }
+          hudStatus.textContent = 'Failed to load map assets.';
+        });
     }
     if (msg.type === 'snapshot') {
       handleSnapshot(msg);
@@ -368,12 +398,18 @@ function connect() {
   });
 
   socket.addEventListener('close', () => {
+    joinButton.disabled = false;
+    joinButton.textContent = JOIN_LABEL;
     handleDisconnect(leavingMatch);
   });
 }
 
 joinButton.addEventListener('click', () => {
-  if (!socket) {
+  if (socket && socket.readyState === WebSocket.CONNECTING) {
+    socket.close();
+    return;
+  }
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
     connect();
   }
 });
@@ -688,24 +724,73 @@ function updateSpectateTarget(playerMap: Map<string, PlayerSnapshot>) {
 }
 
 function getTexture(path: string): THREE.Texture {
-  let tex = textureCache.get(path);
+  const key = encodeURI(path);
+  let tex = textureCache.get(key);
   if (!tex) {
-    tex = textureLoader.load(path);
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, 1);
-    tex.anisotropy = Math.min(MAX_ANISOTROPY, renderer.capabilities.getMaxAnisotropy?.() ?? 1);
-    textureCache.set(path, tex);
+    preloadTexture(path);
+    tex = textureCache.get(key)!;
   }
   return tex;
 }
 
-function getMapMaterial(texturePath?: string, color?: string): THREE.MeshLambertMaterial {
-  const key = texturePath ? `tex:${texturePath}` : `color:${color ?? '#ffffff'}`;
+function preloadTexture(path: string): Promise<THREE.Texture> {
+  const key = encodeURI(path);
+  const cached = textureCache.get(key);
+  if (cached && cached.userData?.loaded) {
+    return Promise.resolve(cached);
+  }
+  const existing = textureLoadPromises.get(key);
+  if (existing) {
+    return existing;
+  }
+  const promise = new Promise<THREE.Texture>((resolve) => {
+    const tex = textureLoader.load(
+      key,
+      () => {
+        tex.userData.loaded = true;
+        resolve(tex);
+      },
+      undefined,
+      () => resolve(tex)
+    );
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(1, 1);
+    tex.anisotropy = Math.min(MAX_ANISOTROPY, renderer.capabilities.getMaxAnisotropy?.() ?? 1);
+    textureCache.set(key, tex);
+  });
+  textureLoadPromises.set(key, promise);
+  return promise;
+}
+
+function preloadMapAssets(map: MapData): Promise<void> {
+  const textureSet = new Set<string>();
+  for (const box of map.boxes) {
+    if (box.texture) {
+      textureSet.add(box.texture);
+    }
+  }
+  if (map.decals) {
+    for (const decal of map.decals) {
+      textureSet.add(decal.src);
+    }
+  }
+  const texturePromises = Array.from(textureSet).map((path) => preloadTexture(path));
+  const modelPromises = (map.models ?? []).map((model) => getModel(model.path));
+  return Promise.all([...texturePromises, ...modelPromises]).then(() => undefined);
+}
+
+function getMapMaterial(
+  texturePath?: string,
+  color?: string,
+  side: THREE.Side = THREE.FrontSide
+): THREE.MeshLambertMaterial {
+  const key = `${texturePath ? `tex:${texturePath}` : `color:${color ?? '#ffffff'}`}|side:${side}`;
   let material = mapMaterialCache.get(key);
   if (!material) {
     const params: THREE.MeshLambertMaterialParameters = {
       color: texturePath ? 0xffffff : color ?? '#ffffff',
+      side,
     };
     if (texturePath) {
       params.map = getTexture(texturePath);
@@ -1088,6 +1173,9 @@ function canOpenBuy(): boolean {
   if (latestSnapshot.round.phase === 'match_over' || latestSnapshot.round.phase === 'post') {
     return false;
   }
+  if (latestSnapshot.round.mode === 'ffa') {
+    return latestSnapshot.round.phase === 'live';
+  }
   return roundElapsedSeconds() <= BUY_WINDOW;
 }
 
@@ -1274,13 +1362,16 @@ function buildMap(map: MapData) {
     const repeatU = box.texture ? Math.max(1, size.x / TEXTURE_REPEAT_SCALE) : 1;
     const repeatV = box.texture ? Math.max(1, size.z / TEXTURE_REPEAT_SCALE) : 1;
     const geometry = getBoxGeometry(size, repeatU, repeatV);
-    const materialKey = box.texture ? `tex:${box.texture}` : `color:${box.color ?? '#ffffff'}`;
+    const side = box.type === 'ceiling' ? THREE.DoubleSide : THREE.FrontSide;
+    const materialKey = `${
+      box.texture ? `tex:${box.texture}` : `color:${box.color ?? '#ffffff'}`
+    }|side:${side}`;
     const key = `${size.x.toFixed(3)}|${size.y.toFixed(3)}|${size.z.toFixed(3)}|${repeatU.toFixed(3)}|${repeatV.toFixed(3)}|${materialKey}`;
     let bucket = boxBuckets.get(key);
     if (!bucket) {
       bucket = {
         geometry,
-        material: getMapMaterial(box.texture, box.color),
+        material: getMapMaterial(box.texture, box.color, side),
         positions: [],
       };
       boxBuckets.set(key, bucket);
@@ -1769,7 +1860,7 @@ function createPlayerMesh(side: Side): THREE.Group {
   group.add(rightLegPivot);
 
   const weaponGroup = new THREE.Group();
-  rightArmPivot.add(weaponGroup);
+  group.add(weaponGroup);
 
   const hitboxMat = new THREE.MeshBasicMaterial({
     color: 0x00ff66,
@@ -1959,6 +2050,18 @@ function updateScope(forceOff = false) {
   scopeOverlay.classList.toggle('visible', scoped && localState.primary === 'sniper');
 }
 
+function isSniperScopeActive(): boolean {
+  return (
+    scopeHeld &&
+    pointerLocked &&
+    !inEditor &&
+    localState.alive &&
+    currentWeapon === 'primary' &&
+    localState.primary === 'sniper' &&
+    latestSnapshot?.round.phase === 'live'
+  );
+}
+
 function applyRecoil(nowSeconds: number) {
   if (inEditor || !pointerLocked || !inputState.shoot) {
     return;
@@ -1990,9 +2093,21 @@ function applyRecoil(nowSeconds: number) {
 }
 
 function getViewAngles(): { yaw: number; pitch: number } {
+  const applyAimRecoil = !(currentWeapon === 'primary' && localState.primary === 'sniper');
   return {
     yaw: baseYaw,
-    pitch: clamp(basePitch + recoilPitch, -PITCH_LIMIT, PITCH_LIMIT),
+    pitch: clamp(basePitch + (applyAimRecoil ? recoilPitch : 0), -PITCH_LIMIT, PITCH_LIMIT),
+  };
+}
+
+function getCameraAngles(): { yaw: number; pitch: number } {
+  const applyVisualRecoil =
+    currentWeapon !== 'primary' ||
+    localState.primary !== 'sniper' ||
+    isSniperScopeActive();
+  return {
+    yaw: baseYaw,
+    pitch: clamp(basePitch + (applyVisualRecoil ? recoilPitch : 0), -PITCH_LIMIT, PITCH_LIMIT),
   };
 }
 
@@ -2088,7 +2203,7 @@ function render() {
 
   const renderTime = nowSeconds + serverTimeOffset - 0.1;
 
-  const view = getViewAngles();
+  const view = getCameraAngles();
   if (!localState.alive && spectateId) {
     const spectated = samplePlayer(spectateId, renderTime);
     if (spectated) {

@@ -86,6 +86,15 @@ export function movePlayer(
   if (onGround && moved.vel[1] < 0) {
     moved.vel[1] = 0;
   }
+  if (onGround && !move.jump) {
+    const groundY = groundHeightAt(moved.pos, map, moved.pos[1]);
+    if (groundY !== null) {
+      const delta = groundY - moved.pos[1];
+      if (Math.abs(delta) <= STEP_HEIGHT + 0.05) {
+        moved.pos[1] = groundY;
+      }
+    }
+  }
 
   return {
     pos: moved.pos,

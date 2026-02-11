@@ -284,6 +284,9 @@ function inBuyWindow(): boolean {
   if (phase !== 'freeze' && phase !== 'live') {
     return false;
   }
+  if (gameMode === 'ffa') {
+    return true;
+  }
   return roundElapsed() <= BUY_WINDOW;
 }
 
