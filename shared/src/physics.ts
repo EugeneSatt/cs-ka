@@ -50,29 +50,15 @@ export function movePlayer(
     if (len > 0) {
       wish = [wish[0] / len, 0, wish[2] / len];
     }
-    const accel = state.onGround ? GROUND_ACCEL : AIR_ACCEL;
     const wishVel: Vec3 = [wish[0] * MAX_SPEED * speedMul, 0, wish[2] * MAX_SPEED * speedMul];
-    vel[0] = approach(vel[0], wishVel[0], accel * dt);
-    vel[2] = approach(vel[2], wishVel[2], accel * dt);
-  } else if (state.onGround) {
-    const drop = Math.max(0, 1 - FRICTION * dt);
-    vel[0] *= drop;
-    vel[2] *= drop;
-    if (Math.abs(vel[0]) < STOP_SPEED) {
-      vel[0] = 0;
-    }
-    if (Math.abs(vel[2]) < STOP_SPEED) {
-      vel[2] = 0;
-    }
+    vel[0] = wishVel[0];
+    vel[2] = wishVel[2];
+  } else {
+    vel[0] = 0;
+    vel[2] = 0;
   }
 
-  const horiz = Math.hypot(vel[0], vel[2]);
-  const maxSpeed = MAX_SPEED * speedMul;
-  if (horiz > maxSpeed) {
-    const scale = maxSpeed / horiz;
-    vel[0] *= scale;
-    vel[2] *= scale;
-  }
+  // No inertia: velocity is already clamped to max speed.
 
   if (move.jump && state.onGround) {
     vel[1] = JUMP_SPEED;

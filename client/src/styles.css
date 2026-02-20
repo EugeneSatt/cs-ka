@@ -254,6 +254,116 @@ body {
   color: var(--muted);
 }
 
+.game-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 6, 9, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 30;
+}
+
+.game-modal-card {
+  width: min(520px, calc(100vw - 32px));
+  border-radius: 12px;
+  padding: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  background: rgba(14, 18, 22, 0.96);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+
+#round-modal.team-t .game-modal-card {
+  background: linear-gradient(180deg, #ffe800, #f6c503);
+  color: #151200;
+  border-color: #fff383;
+}
+
+#round-modal.team-ct .game-modal-card {
+  background: linear-gradient(180deg, #58ff2e, #16ca39);
+  color: #032303;
+  border-color: #9cff82;
+}
+
+#round-modal.team-t .round-stats-row,
+#round-modal.team-ct .round-stats-row {
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.game-modal-card h2 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: 0.04em;
+}
+
+.game-modal-card p {
+  margin: 8px 0 0 0;
+  font-size: 15px;
+}
+
+.game-modal-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.game-modal-actions button {
+  font-family: inherit;
+  font-size: 15px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: var(--accent);
+  color: #0b0e11;
+}
+
+.game-modal-actions .ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.round-modal-body {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.round-stats-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.round-stats-row .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.round-stats-row .score {
+  min-width: 72px;
+  text-align: right;
+  font-weight: 600;
+}
+
+.round-stats-row.side-t {
+  border-left: 6px solid #ffe800;
+}
+
+.round-stats-row.side-ct {
+  border-left: 6px solid #43ff36;
+}
+
 canvas {
   display: block;
 }

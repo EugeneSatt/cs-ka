@@ -217,7 +217,7 @@
     {"min": [-10, 2.4, 20], "max": [-8, 2.6, 25], "type": "stair_step", "id": "Лестница днк"},
     {"min": [-10, 2.6, 20.25], "max": [-8, 2.8, 25], "type": "stair_step", "id": "Лестница днк"},
     {"min": [-10, 2.8, 20.5], "max": [-8, 3, 25], "type": "stair_step", "id": "Лестница днк"},
-        {"min": [-10, 2.8, 20.75], "max": [-4, 3.2, 25], "type": "stair_step", "id": "Лестница днк"},
+      {"min": [-10, 2.8, 20.75], "max": [-4, 3.2, 25], "type": "stair_step", "id": "Лестница днк"},
 
     {"min": [10, 0.0, 17], "max": [14, 0.2, 22], "type": "stair_step", "id": "Лестница основа"},
     {"min": [10, 0.2, 17.25], "max": [14, 0.4, 22], "type": "stair_step", "id": "Лестница основа"},
@@ -267,7 +267,7 @@
     {"min": [0, 0, 18.5], "max": [0.75, 2, 23.7], "type": "collider_model",  "id": "неблок гардероб", "color": "#FF0000" },
     {"min": [-5.3, 0,10], "max": [-4.3, 1, 11], "type": "collider_model",  "id": "неблок кресло бункер ближний", "color": "#FF0000" },
     {"min": [-7.7, 0,10], "max": [-6.7, 1, 11], "type": "collider_model",  "id": "неблок кресло бункер дальний", "color": "#FF0000" },
-        {"min": [-13, 0,9], "max": [-12, 1, 11], "type": "blcollider_modelock",  "id": "неблок кресло бункер дальний", "color": "#FF0000" },
+    {"min": [-13, 0,9], "max": [-12, 1, 11], "type": "blcollider_modelock",  "id": "неблок кресло бункер дальний", "color": "#FF0000" },
 
     {"min": [-20, 0,16.5], "max": [-16.5, 1, 18.5], "type": "collider_model",  "id": "неблок большой стол днк", "color": "#FF0000" },
     {"min": [-20, 0,21.5], "max": [-16, 1, 22.5], "type": "collider_model",  "id": "неблок напротив гг стол днк", "color": "#FF0000" },
@@ -278,7 +278,7 @@
     {"min": [-13, 0,-7.3], "max": [-12, 0.5, -4.5], "type": "collider_model",  "id": "неблок  диван", "color": "#FF0000" },
     {"min": [-8.6, 0,-1.5], "max": [-8.3, 2, 3.5], "type": "collider_model",  "id": "неблок  полки между лифтами", "color": "#FF0000" },
     {"min": [0.8, 0,-7.9], "max": [1.7, 0.8, -6], "type": "collider_model",  "id": "неблок ВЧикнаева косметика стол", "color": "#FF0000" },
-        {"min": [-4.5, 0,-8.3], "max": [-3.5, 1.6, -8], "type": "collider_model",  "id": "неблок кофетачка", "color": "#FF0000" },
+    {"min": [-4.5, 0,-8.3], "max": [-3.5, 1.6, -8], "type": "collider_model",  "id": "неблок кофетачка", "color": "#FF0000" },
 
     {"min": [2.5, 0,-3.2], "max": [6.5, 0.8, -1.2], "type": "collider_model",  "id": "неблок Дашулик", "color": "#FF0000" },
     {"min": [5.3, 0,-10], "max": [7.3, 0.8, -6.2], "type": "collider_model",  "id": "неблок Даша длинная", "color": "#FF0000" },        
@@ -286,7 +286,7 @@
     {"min": [8.8, 0,-3], "max": [10.7, 0.8, 1], "type": "collider_model",  "id": "неблок Вискас", "color": "#FF0000" },
     {"min": [14.3, 0,-3], "max": [16.3, 0.8, 1], "type": "collider_model",  "id": "неблок Вискас", "color": "#FF0000" },
     {"min": [15, 0,6], "max": [15.4, 2.2, 9.5], "type": "collider_model",  "id": "неблок шкаф вход в опенспейс", "color": "#FF0000" },
-        {"min": [16.5, 0,6], "max": [17.5, 1.4, 6.6], "type": "collider_model",  "id": "неблок шкаф вход в опенспейс", "color": "#FF0000" },
+    {"min": [16.5, 0,6], "max": [17.5, 1.4, 6.6], "type": "collider_model",  "id": "неблок шкаф вход в опенспейс", "color": "#FF0000" },
 
     {"min": [15, 0,5.3], "max": [19, 2.2, 5.8], "type": "collider_model",  "id": "неблок полки перед входом", "color": "#FF0000" },
       {"min": [18.7, 0,0], "max": [19.2, 2.2, 5], "type": "collider_model",  "id": "неблок полки в опенспейсе", "color": "#FF0000" },
@@ -483,6 +483,8 @@
     {"id": "poster_team","src": "/Косме.jpg","pos": [0, 1.6,-3.5],"size": [2.8,2.8],"normal": [1,0,0],"offset": 0.02},
     {"id": "poster_team","src": "/vertpost.jpg","pos": [-6, 2,10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
     {"id": "poster_team","src": "/vertpost.jpg","pos": [14, 2,10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
+        {"id": "poster_team","src": "/ямы.webp","pos": [-8, 2,4],"size": [1.2,1.5],"normal": [1,0,0],"offset": 0.02},
+
     {"id": "poster_team","src": "/vertpost.jpg","pos": [16, 2,-10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
     {"id": "poster_team","src": "/bunker.jpg","pos": [-0.5, 2,10],"size": [0.5,0.2],"normal": [0,0,0],"offset": 0.02},
     {"id": "poster_team","src": "/cosmodrom.jpg","pos": [-13, 2,4.5],"size": [0.5,0.2],"normal": [1,0,0],"offset": 0.02},
@@ -514,7 +516,37 @@
 
 
         {"src": "/каничист.jpg","pos": [8, 2.2,14.7],"size": [0.6,0.8],"normal": [0,0,-1],"offset": 0.05, "id": "в опенспейс"},
-        {"src": "/каничист2.jpg","pos": [5, 2.1,14.7],"size": [0.6,0.8],"normal": [0,0,-1],"offset": 0.05, "id": "в опенспейс"}
+        {"src": "/каничист2.jpg","pos": [5, 2.1,14.7],"size": [0.6,0.8],"normal": [0,0,-1],"offset": 0.05, "id": "в опенспейс"},
+                {"src": "/Данныенесходя.png","pos": [4, 2.2,15],"size": [1.2,1],"normal": [0,0,0],"offset": 0.05, "id": "в опенспейс"},
+
+
+        {"src": "/_biovit_logo__page-0001.jpg","pos": [22, -1.7,6],"size": [6,3],"normal": [1,0,0],"offset": 0.05, "id": "лого на 10"},
+                {"src": "/_logo_touch_f_y_vektor__pages-to-jpg-0001.jpg","pos": [15.45, -1.7,-2.75],"size": [6.5,3],"normal": [1,0,0],"offset": 0.05, "id": "лого на 10"},
+
+        {"src": "/_aktivo_life_logo__page-0001.jpg","pos": [8.5, -1.7,9],"size": [6,3],"normal": [1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/_лавандель__page-0001.jpg","pos": [2.15, -1.8,1.5],"size": [6,3],"normal": [1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/_logo_rocket_vektor__pages-to-jpg-0001.jpg","pos": [-4.05, -1.8,-5],"size": [6,3],"normal": [1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/_лого_рева__page-0001.jpg","pos": [-10.05, -1.8,5],"size": [6,3],"normal": [1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/yoshi_logo_pages-to-jpg-0001.jpg","pos": [-16.55, -1.8,-2],"size": [6,3],"normal": [1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/florey-logo-.jpg","pos": [-11.95, -1.8,5],"size": [6,3],"normal": [-1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/green-dgaro-logo-.jpg","pos": [-5.95, -1.8,-5],"size": [6,3],"normal": [-1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/librex-logo-.jpg","pos": [0.55, -1.8,1.5],"size": [6,3],"normal": [-1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/rox-logo-.jpg","pos": [6.55, -1.8,9],"size": [6,3],"normal": [-1,0,0],"offset": 0.05, "id": "в опенспейс"},
+        {"src": "/roxfox-logo-.jpg","pos": [13.05, -1.8,-2.75],"size": [6.5,3],"normal": [-1,0,0],"offset": 0.05, "id": "в опенспейс"},
+                {"src": "/Лого-purelamby-без-шляпы.jpg","pos": [19.05, -1.8,6],"size": [6,3],"normal": [-1,0,0],"offset": 0.05, "id": "в опенспейс"}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
   ]

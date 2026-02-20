@@ -32,6 +32,8 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 const BASE_FOV = 75;
 const SNIPER_SCOPE_FOV = 12;
 const RIFLE_SCOPE_FOV = 60;
+const WORLD_LAYER = 0;
+const VIEW_WEAPON_LAYER = 1;
 
 const colliderParam = new URL(window.location.href).searchParams.get('colliders')?.toLowerCase() ?? '';
 const showColliderModels = colliderParam === '1' || colliderParam === 'true' || colliderParam === 'all';
@@ -62,6 +64,13 @@ const crosshair = document.getElementById('crosshair') as HTMLDivElement;
 const scopeOverlay = document.createElement('div');
 scopeOverlay.id = 'scope-overlay';
 document.body.appendChild(scopeOverlay);
+const exitModal = document.getElementById('exit-modal') as HTMLDivElement;
+const exitConfirmButton = document.getElementById('exit-confirm') as HTMLButtonElement;
+const exitCancelButton = document.getElementById('exit-cancel') as HTMLButtonElement;
+const roundModal = document.getElementById('round-modal') as HTMLDivElement;
+const roundModalTitle = document.getElementById('round-modal-title') as HTMLHeadingElement;
+const roundModalBody = document.getElementById('round-modal-body') as HTMLDivElement;
+const roundModalCloseButton = document.getElementById('round-modal-close') as HTMLButtonElement;
 
 // Reduce quality slightly for performance: disable full antialias and cap DPR.
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -73,6 +82,7 @@ const HIGH_FPS = 70;
 const DPR_ADJUST_INTERVAL = 700;
 const MAX_ANISOTROPY = 4;
 const TEXTURE_REPEAT_SCALE = 4;
+const ASSET_PRELOAD_TIMEOUT_MS = 4000;
 let baseDpr = Math.min(window.devicePixelRatio, MAX_DPR);
 let dynamicDpr = baseDpr;
 renderer.setPixelRatio(dynamicDpr);
@@ -83,6 +93,8 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.01, 200);
 camera.rotation.order = 'YXZ';
+camera.layers.enable(WORLD_LAYER);
+camera.layers.enable(VIEW_WEAPON_LAYER);
 scene.add(camera);
 const textureLoader = new THREE.TextureLoader();
 const textureCache = new Map<string, THREE.Texture>();
@@ -131,6 +143,7 @@ let lastRecoilTime = 0;
 let scopeHeld = false;
 let scoped = false;
 let matchOverTimeout: number | null = null;
+let roundModalTimeout: number | null = null;
 let faceDataUrl: string | null = null;
 const playerFaces = new Map<string, string | null>();
 const faceTextureCache = new Map<string, THREE.Texture>();
@@ -269,6 +282,7 @@ let crosshairHitTimeout: number | null = null;
 let spectateId: string | null = null;
 const viewWeaponGroup = new THREE.Group();
 viewWeaponGroup.frustumCulled = false;
+viewWeaponGroup.layers.set(VIEW_WEAPON_LAYER);
 camera.add(viewWeaponGroup);
 viewWeaponGroup.renderOrder = 100;
 let viewWeaponType: ViewWeaponType | null = null;
@@ -369,6 +383,9 @@ function connect() {
       mapData = msg.map;
       hudStatus.textContent = 'Loading map...';
       preloadMapAssets(msg.map)
+        .catch((err) => {
+          console.warn('Map preload warning:', err);
+        })
         .then(() => {
           if (mapLoadToken !== token || !mapData) {
             return;
@@ -381,12 +398,6 @@ function connect() {
               playerFaces.set(meta.id, meta.face ?? null);
             }
           }
-        })
-        .catch(() => {
-          if (mapLoadToken !== token) {
-            return;
-          }
-          hudStatus.textContent = 'Failed to load map assets.';
         });
     }
     if (msg.type === 'snapshot') {
@@ -416,6 +427,31 @@ joinButton.addEventListener('click', () => {
 
 editorButton.addEventListener('click', () => {
   enterEditor();
+});
+
+exitConfirmButton.addEventListener('click', () => {
+  closeExitModal();
+  leaveMatch();
+});
+
+exitCancelButton.addEventListener('click', () => {
+  closeExitModal();
+});
+
+roundModalCloseButton.addEventListener('click', () => {
+  closeRoundModal();
+});
+
+exitModal.addEventListener('click', (event) => {
+  if (event.target === exitModal) {
+    closeExitModal();
+  }
+});
+
+roundModal.addEventListener('click', (event) => {
+  if (event.target === roundModal) {
+    closeRoundModal();
+  }
 });
 
 function refreshModeUI() {
@@ -563,9 +599,24 @@ document.addEventListener('keydown', (event) => {
   if (event.code === 'Escape') {
     if (inEditor) {
       exitEditor();
-    } else {
-      leaveMatch();
+      return;
     }
+    if (isExitModalOpen()) {
+      closeExitModal();
+      return;
+    }
+    if (isRoundModalOpen()) {
+      closeRoundModal();
+      return;
+    }
+    if (inMatch || socket) {
+      openExitModal();
+      return;
+    }
+    return;
+  }
+
+  if (isAnyModalOpen()) {
     return;
   }
 
@@ -633,6 +684,144 @@ function resetHud() {
   buyMenu.classList.add('hidden');
   document.body.classList.remove('crosshair-hit');
   spectateId = null;
+  closeExitModal();
+  closeRoundModal();
+}
+
+function isExitModalOpen(): boolean {
+  return !exitModal.classList.contains('hidden');
+}
+
+function isRoundModalOpen(): boolean {
+  return !roundModal.classList.contains('hidden');
+}
+
+function isAnyModalOpen(): boolean {
+  return isExitModalOpen() || isRoundModalOpen();
+}
+
+function closeExitModal() {
+  exitModal.classList.add('hidden');
+}
+
+function openExitModal() {
+  document.exitPointerLock();
+  closeBuyMenu();
+  pressedKeys.clear();
+  inputState.shoot = false;
+  exitModal.classList.remove('hidden');
+}
+
+function clearRoundModalBody() {
+  while (roundModalBody.firstChild) {
+    roundModalBody.removeChild(roundModalBody.firstChild);
+  }
+}
+
+function setRoundModalTone(side: Side | null) {
+  roundModal.classList.remove('team-t', 'team-ct');
+  if (side === 'T') {
+    roundModal.classList.add('team-t');
+  } else if (side === 'CT') {
+    roundModal.classList.add('team-ct');
+  }
+}
+
+function closeRoundModal() {
+  roundModal.classList.add('hidden');
+  roundModal.classList.remove('team-t', 'team-ct');
+  if (roundModalTimeout !== null) {
+    window.clearTimeout(roundModalTimeout);
+    roundModalTimeout = null;
+  }
+}
+
+function showRoundModal(title: string, side: Side | null, autoHideMs?: number) {
+  document.exitPointerLock();
+  pressedKeys.clear();
+  inputState.shoot = false;
+  roundModalTitle.textContent = title;
+  setRoundModalTone(side);
+  roundModal.classList.remove('hidden');
+  if (roundModalTimeout !== null) {
+    window.clearTimeout(roundModalTimeout);
+    roundModalTimeout = null;
+  }
+  if (autoHideMs && autoHideMs > 0) {
+    roundModalTimeout = window.setTimeout(() => {
+      roundModalTimeout = null;
+      closeRoundModal();
+    }, autoHideMs);
+  }
+}
+
+function appendRoundModalLine(text: string, className?: string) {
+  const line = document.createElement('div');
+  line.textContent = text;
+  if (className) {
+    line.className = className;
+  }
+  roundModalBody.appendChild(line);
+}
+
+function showTeamRoundResultModal(winnerSide: Side, reason: 'elimination' | 'time') {
+  clearRoundModalBody();
+  const reasonLabel = reason === 'elimination' ? 'Elimination' : 'Time over';
+  appendRoundModalLine(`Reason: ${reasonLabel}`);
+  const scores = latestSnapshot?.round.scores;
+  if (scores) {
+    appendRoundModalLine(`Score: A ${scores.A} - ${scores.B} B`);
+  }
+  const title = winnerSide === 'T' ? 'Terrorists Win Round' : 'Counter-Terrorists Win Round';
+  showRoundModal(title, winnerSide, 3500);
+}
+
+function showTeamRoundDrawModal(reason: 'time' | 'survivors') {
+  clearRoundModalBody();
+  const reasonLabel = reason === 'time' ? 'Time over' : 'No survivors';
+  appendRoundModalLine(`Reason: ${reasonLabel}`);
+  const scores = latestSnapshot?.round.scores;
+  if (scores) {
+    appendRoundModalLine(`Score: A ${scores.A} - ${scores.B} B`);
+  }
+  showRoundModal('Round Draw', null, 3000);
+}
+
+function showFfaStatsModal(winners: Array<{ id: string; name: string; kills: number }>) {
+  clearRoundModalBody();
+  const players = [...(latestSnapshot?.players ?? [])].sort((a, b) => {
+    if (b.kills !== a.kills) {
+      return b.kills - a.kills;
+    }
+    return a.deaths - b.deaths;
+  });
+  let toneSide: Side | null = null;
+  if (winners.length > 0) {
+    const winnerSnapshot = players.find((player) => player.id === winners[0].id);
+    toneSide = winnerSnapshot?.side ?? null;
+    appendRoundModalLine(`Winner: ${winners[0].name} (${winners[0].kills} K)`);
+  } else {
+    appendRoundModalLine('No winner data.');
+  }
+  for (let i = 0; i < players.length; i += 1) {
+    const player = players[i];
+    const row = document.createElement('div');
+    row.className = `round-stats-row side-${player.side.toLowerCase()}`;
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = `${i + 1}. ${player.name}`;
+    const score = document.createElement('div');
+    score.className = 'score';
+    score.textContent = `K ${player.kills}`;
+    const deaths = document.createElement('div');
+    deaths.className = 'score';
+    deaths.textContent = `D ${player.deaths}`;
+    row.appendChild(name);
+    row.appendChild(score);
+    row.appendChild(deaths);
+    roundModalBody.appendChild(row);
+  }
+  showRoundModal('FFA Match Stats', toneSide);
 }
 
 function clearMeshes() {
@@ -777,7 +966,13 @@ function preloadMapAssets(map: MapData): Promise<void> {
   }
   const texturePromises = Array.from(textureSet).map((path) => preloadTexture(path));
   const modelPromises = (map.models ?? []).map((model) => getModel(model.path));
-  return Promise.all([...texturePromises, ...modelPromises]).then(() => undefined);
+  const withTimeout = (promise: Promise<unknown>) =>
+    Promise.race([
+      promise.then(() => undefined).catch(() => undefined),
+      new Promise<void>((resolve) => setTimeout(resolve, ASSET_PRELOAD_TIMEOUT_MS)),
+    ]);
+  const tasks = [...texturePromises, ...modelPromises].map((task) => withTimeout(task));
+  return Promise.all(tasks).then(() => undefined);
 }
 
 function getMapMaterial(
@@ -1077,22 +1272,24 @@ function setViewWeapon(type: ViewWeaponType | null) {
       localBox.getSize(hitSize);
       localBox.getCenter(hitCenter);
       const drawHitbox = hitSize.lengthSq() > 0;
-      instance.traverse((child) => {
-        child.castShadow = false;
-        child.receiveShadow = false;
-        const mesh = child as THREE.Mesh;
-        if (mesh.isMesh) {
-          mesh.renderOrder = 100;
-          mesh.frustumCulled = false;
-          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          for (const material of materials) {
-            material.depthTest = false;
-            material.depthWrite = false;
+        instance.traverse((child) => {
+          child.castShadow = false;
+          child.receiveShadow = false;
+          const mesh = child as THREE.Mesh;
+          if (mesh.isMesh) {
+            mesh.layers.set(VIEW_WEAPON_LAYER);
+            mesh.renderOrder = 1000;
+            mesh.frustumCulled = false;
+            const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            for (const material of materials) {
+              material.depthTest = false;
+              material.depthWrite = true;
+            }
           }
-        }
-      });
-      viewWeaponGroup.add(instance);
-    })
+        });
+        instance.layers.set(VIEW_WEAPON_LAYER);
+        viewWeaponGroup.add(instance);
+      })
     .catch((err) => console.warn('Failed to load view weapon', config.path, err));
 }
 
@@ -1293,6 +1490,8 @@ function enterEditor(saved?: EditorSession) {
   clearMeshes();
   inEditor = true;
   cleanedUp = false;
+  closeExitModal();
+  closeRoundModal();
   closeBuyMenu();
   updateScope(true);
   if (saved) {
@@ -1318,6 +1517,8 @@ function exitEditor() {
   inEditor = false;
   pointerLocked = false;
   document.exitPointerLock();
+  closeExitModal();
+  closeRoundModal();
   resetEditorState();
   clearMeshes();
   mapData = null;
@@ -1714,6 +1915,7 @@ function updateHud(snapshot: ServerSnapshot) {
 
 function handleEvents(events: ServerSnapshot['events']) {
   for (const event of events) {
+    const mode = latestSnapshot?.round.mode ?? 'team';
     if (event.type === 'round_end') {
       const me = latestSnapshot?.players.find((p) => p.id === clientId);
       if (me) {
@@ -1725,12 +1927,18 @@ function handleEvents(events: ServerSnapshot['events']) {
       } else {
         hudStatus.textContent = `Round: ${event.winnerSide}`;
       }
+      if (mode === 'team') {
+        showTeamRoundResultModal(event.winnerSide, event.reason);
+      }
     }
     if (event.type === 'round_start') {
       hudStatus.textContent = `Round ${event.round} start.`;
     }
     if (event.type === 'round_draw') {
       hudStatus.textContent = 'Draw';
+      if (mode === 'team') {
+        showTeamRoundDrawModal(event.reason);
+      }
     }
     if (event.type === 'hit' && event.attackerId === clientId) {
       flashCrosshairHit();
@@ -1753,18 +1961,24 @@ function handleEvents(events: ServerSnapshot['events']) {
       }
       if (matchOverTimeout !== null) {
         window.clearTimeout(matchOverTimeout);
+        matchOverTimeout = null;
       }
-      matchOverTimeout = window.setTimeout(() => {
-        if (!inEditor) {
-          leaveMatch();
-        }
-      }, 3000);
+      if (mode === 'ffa') {
+        showFfaStatsModal(event.winners);
+      } else {
+        matchOverTimeout = window.setTimeout(() => {
+          if (!inEditor) {
+            leaveMatch();
+          }
+        }, 3000);
+      }
     }
   }
 }
 
 function createPlayerMesh(side: Side): THREE.Group {
   const group = new THREE.Group();
+  const SHOW_HITBOX = false;
 
   const bodyColor = side === 'T' ? 0xd2a15b : 0x6aa6ff;
   const limbColor = side === 'T' ? 0xa0773b : 0x3f6fbf;
@@ -1862,32 +2076,34 @@ function createPlayerMesh(side: Side): THREE.Group {
   const weaponGroup = new THREE.Group();
   group.add(weaponGroup);
 
-  const hitboxMat = new THREE.MeshBasicMaterial({
-    color: 0x00ff66,
-    wireframe: true,
-    transparent: true,
-    opacity: 0.35,
-    depthTest: false,
-    depthWrite: false,
-  });
-  const torsoHit = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.7, 0.32), hitboxMat);
-  torsoHit.position.set(0, 1.0, 0);
-  group.add(torsoHit);
-  const headHit = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.42, 0.38), hitboxMat);
-  headHit.position.set(0, 1.58, 0);
-  group.add(headHit);
-  const leftArmHit = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), hitboxMat);
-  leftArmHit.position.set(-0.38, 0.9, 0);
-  group.add(leftArmHit);
-  const rightArmHit = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), hitboxMat);
-  rightArmHit.position.set(0.38, 0.9, 0);
-  group.add(rightArmHit);
-  const leftLegHit = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), hitboxMat);
-  leftLegHit.position.set(-0.16, 0.25, 0);
-  group.add(leftLegHit);
-  const rightLegHit = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), hitboxMat);
-  rightLegHit.position.set(0.16, 0.25, 0);
-  group.add(rightLegHit);
+  if (SHOW_HITBOX) {
+    const hitboxMat = new THREE.MeshBasicMaterial({
+      color: 0x00ff66,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.35,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const torsoHit = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.7, 0.32), hitboxMat);
+    torsoHit.position.set(0, 1.0, 0);
+    group.add(torsoHit);
+    const headHit = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.42, 0.38), hitboxMat);
+    headHit.position.set(0, 1.58, 0);
+    group.add(headHit);
+    const leftArmHit = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), hitboxMat);
+    leftArmHit.position.set(-0.38, 0.9, 0);
+    group.add(leftArmHit);
+    const rightArmHit = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), hitboxMat);
+    rightArmHit.position.set(0.38, 0.9, 0);
+    group.add(rightArmHit);
+    const leftLegHit = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), hitboxMat);
+    leftLegHit.position.set(-0.16, 0.25, 0);
+    group.add(leftLegHit);
+    const rightLegHit = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), hitboxMat);
+    rightLegHit.position.set(0.16, 0.25, 0);
+    group.add(rightLegHit);
+  }
 
   group.userData.parts = {
     head: headPivot,
@@ -2181,20 +2397,23 @@ function render() {
   lastFrameTime = now;
   updateFps(now);
 
-  if (inEditor) {
-    updateEditorMovement(dt);
-    camera.position.set(editorState.pos[0], editorState.pos[1], editorState.pos[2]);
-    camera.rotation.y = editorState.yaw;
-    camera.rotation.x = editorState.pitch;
+    if (inEditor) {
+      updateEditorMovement(dt);
+      camera.position.set(editorState.pos[0], editorState.pos[1], editorState.pos[2]);
+      camera.rotation.y = editorState.yaw;
+      camera.rotation.x = editorState.pitch;
     if (camera.fov !== BASE_FOV) {
       camera.fov = BASE_FOV;
       camera.updateProjectionMatrix();
+      }
+      persistEditorSession(now);
+      updateDecorCulling(now);
+      camera.layers.set(WORLD_LAYER);
+      renderer.render(scene, camera);
+      camera.layers.enable(WORLD_LAYER);
+      camera.layers.enable(VIEW_WEAPON_LAYER);
+      return;
     }
-    persistEditorSession(now);
-    updateDecorCulling(now);
-    renderer.render(scene, camera);
-    return;
-  }
 
   updateInputState();
   updateRecoil(dt);
@@ -2242,10 +2461,21 @@ function render() {
     closeBuyMenu();
   }
 
-  updateRemotePlayers(renderTime);
-  updateTracers(now);
-  renderer.render(scene, camera);
-}
+    updateRemotePlayers(renderTime);
+    updateTracers(now);
+    camera.layers.set(WORLD_LAYER);
+    renderer.render(scene, camera);
+    if (showWeapon) {
+      const prevAutoClear = renderer.autoClear;
+      renderer.autoClear = false;
+      renderer.clearDepth();
+      camera.layers.set(VIEW_WEAPON_LAYER);
+      renderer.render(scene, camera);
+      renderer.autoClear = prevAutoClear;
+    }
+    camera.layers.enable(WORLD_LAYER);
+    camera.layers.enable(VIEW_WEAPON_LAYER);
+  }
 
 let lastFrameTime = performance.now();
 let fpsLastSample = lastFrameTime;

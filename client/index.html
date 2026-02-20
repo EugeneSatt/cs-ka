@@ -71,6 +71,27 @@
 
     <div id="crosshair"></div>
 
+    <div id="exit-modal" class="game-modal hidden">
+      <div class="game-modal-card">
+        <h2>Leave match?</h2>
+        <p>You can stay and continue playing.</p>
+        <div class="game-modal-actions">
+          <button id="exit-confirm">Exit</button>
+          <button id="exit-cancel" class="ghost">Stay</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="round-modal" class="game-modal hidden">
+      <div class="game-modal-card">
+        <h2 id="round-modal-title">Round result</h2>
+        <div id="round-modal-body" class="round-modal-body"></div>
+        <div class="game-modal-actions">
+          <button id="round-modal-close">Close</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
