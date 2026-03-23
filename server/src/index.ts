@@ -21,7 +21,7 @@ import {
 } from '../../shared/src/constants';
 import type { MatchTeam, Side, WeaponSlot, WeaponType } from '../../shared/src/constants';
 import { clamp } from '../../shared/src/math';
-import { movePlayer } from '../../shared/src/physics';
+import { collidesAt, isOnGround, movePlayer, resolvePenetration } from '../../shared/src/physics';
 import { directionFromYawPitch, rayIntersectAABB } from '../../shared/src/ray';
 import type { Vec3 } from '../../shared/src/types';
 
@@ -43,7 +43,7 @@ const MODEL_DEFAULTS: Array<{ keys: string[]; box: { min: Vec3; max: Vec3 } }> =
   { keys: ['alex_mini'], box: { min: [-0.4, 0, -0.4], max: [0.4, 0.7, 0.4] } },
   { keys: ['black_label'], box: { min: [-0.2, 0, -0.2], max: [0.2, 0.5, 0.2] } },
 ];
-const FALLBACK_MODEL_BOX = { min: [-0.5, 0, -0.5], max: [0.5, 0.8, 0.5] };
+const FALLBACK_MODEL_BOX: { min: Vec3; max: Vec3 } = { min: [-0.5, 0, -0.5], max: [0.5, 0.8, 0.5] };
 
 function modelCollider(model: ModelDef): { min: Vec3; max: Vec3 } | null {
   if (model.collider) {
@@ -702,34 +702,120 @@ function processRespawns() {
   }
 }
 
+const PLAYER_OVERLAP_MOVE_STEPS = 10;
+
+function movePlayerAxisSafely(player: Player, axis: 0 | 2, delta: number) {
+  if (Math.abs(delta) <= 1e-4) {
+    return;
+  }
+
+  const start = player.pos[axis];
+  const startColliding = collidesAt(player.pos, mapData);
+  const target: Vec3 = [player.pos[0], player.pos[1], player.pos[2]];
+  target[axis] = start + delta;
+  if (!collidesAt(target, mapData)) {
+    player.pos[axis] = target[axis];
+    return;
+  }
+
+  if (startColliding) {
+    for (let step = 1; step <= PLAYER_OVERLAP_MOVE_STEPS; step += 1) {
+      target[axis] = start + delta * (step / PLAYER_OVERLAP_MOVE_STEPS);
+      if (!collidesAt(target, mapData)) {
+        player.pos[axis] = target[axis];
+        return;
+      }
+    }
+    return;
+  }
+
+  for (let step = PLAYER_OVERLAP_MOVE_STEPS - 1; step >= 1; step -= 1) {
+    target[axis] = start + delta * (step / PLAYER_OVERLAP_MOVE_STEPS);
+    if (!collidesAt(target, mapData)) {
+      player.pos[axis] = target[axis];
+      return;
+    }
+  }
+}
+
+function translatePlayerSafely(player: Player, dx: number, dz: number, dirX: number, dirZ: number): number {
+  const startX = player.pos[0];
+  const startZ = player.pos[2];
+
+  movePlayerAxisSafely(player, 0, dx);
+  movePlayerAxisSafely(player, 2, dz);
+  player.pos = resolvePenetration(player.pos, mapData);
+
+  const movedX = player.pos[0] - startX;
+  const movedZ = player.pos[2] - startZ;
+  return Math.max(0, movedX * dirX + movedZ * dirZ);
+}
+
 function resolvePlayerOverlaps() {
   const playerList = Array.from(players.values()).filter((p) => p.alive);
   const minDist = PLAYER_RADIUS * 2;
-  for (let i = 0; i < playerList.length; i += 1) {
-    for (let j = i + 1; j < playerList.length; j += 1) {
-      const a = playerList[i];
-      const b = playerList[j];
-      const dx = b.pos[0] - a.pos[0];
-      const dz = b.pos[2] - a.pos[2];
-      const distSq = dx * dx + dz * dz;
-      if (distSq <= 1e-6) {
-        const offset = minDist * 0.5;
-        a.pos[0] -= offset;
-        b.pos[0] += offset;
-        continue;
+  for (const player of playerList) {
+    player.pos = resolvePenetration(player.pos, mapData);
+  }
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let i = 0; i < playerList.length; i += 1) {
+      for (let j = i + 1; j < playerList.length; j += 1) {
+        const a = playerList[i];
+        const b = playerList[j];
+        const dx = b.pos[0] - a.pos[0];
+        const dz = b.pos[2] - a.pos[2];
+        const distSq = dx * dx + dz * dz;
+
+        let nx = 0;
+        let nz = 0;
+        let overlap = 0;
+
+        if (distSq <= 1e-6) {
+          const velDx = b.vel[0] - a.vel[0];
+          const velDz = b.vel[2] - a.vel[2];
+          const velLen = Math.hypot(velDx, velDz);
+          if (velLen > 1e-4) {
+            nx = velDx / velLen;
+            nz = velDz / velLen;
+          } else {
+            nx = a.id < b.id ? -1 : 1;
+            nz = 0;
+          }
+          overlap = minDist;
+        } else {
+          const dist = Math.sqrt(distSq);
+          if (dist >= minDist) {
+            continue;
+          }
+          nx = dx / dist;
+          nz = dz / dist;
+          overlap = minDist - dist;
+        }
+
+        const aDirX = -nx;
+        const aDirZ = -nz;
+        const bDirX = nx;
+        const bDirZ = nz;
+        const halfOverlap = overlap * 0.5;
+
+        const movedA = translatePlayerSafely(a, aDirX * halfOverlap, aDirZ * halfOverlap, aDirX, aDirZ);
+        const movedB = translatePlayerSafely(b, bDirX * halfOverlap, bDirZ * halfOverlap, bDirX, bDirZ);
+
+        let remaining = overlap - movedA - movedB;
+        if (remaining > 1e-4) {
+          remaining -= translatePlayerSafely(a, aDirX * remaining, aDirZ * remaining, aDirX, aDirZ);
+        }
+        if (remaining > 1e-4) {
+          translatePlayerSafely(b, bDirX * remaining, bDirZ * remaining, bDirX, bDirZ);
+        }
       }
-      const dist = Math.sqrt(distSq);
-      if (dist >= minDist) {
-        continue;
-      }
-      const overlap = (minDist - dist) * 0.5;
-      const nx = dx / dist;
-      const nz = dz / dist;
-      a.pos[0] -= nx * overlap;
-      a.pos[2] -= nz * overlap;
-      b.pos[0] += nx * overlap;
-      b.pos[2] += nz * overlap;
     }
+  }
+
+  for (const player of playerList) {
+    player.pos = resolvePenetration(player.pos, mapData);
+    player.onGround = isOnGround(player.pos, mapData);
   }
 }
 

@@ -83,6 +83,13 @@ const DPR_ADJUST_INTERVAL = 700;
 const MAX_ANISOTROPY = 4;
 const TEXTURE_REPEAT_SCALE = 4;
 const ASSET_PRELOAD_TIMEOUT_MS = 4000;
+const MAP_WARMUP_MAX_SPAWNS = 12;
+const MAP_WARMUP_DIRECTIONS = [
+  new THREE.Vector3(1, 0, 0),
+  new THREE.Vector3(-1, 0, 0),
+  new THREE.Vector3(0, 0, 1),
+  new THREE.Vector3(0, 0, -1),
+];
 let baseDpr = Math.min(window.devicePixelRatio, MAX_DPR);
 let dynamicDpr = baseDpr;
 renderer.setPixelRatio(dynamicDpr);
@@ -133,6 +140,10 @@ const inputState = {
   throwGrenade: false,
 };
 
+const STRAFE_INPUT_ACCEL = 12;
+const STRAFE_INPUT_RELEASE = 16;
+const STRAFE_INPUT_REVERSE = 20;
+
 const pressedKeys = new Set<string>();
 let currentWeapon: WeaponSlot = 'primary';
 let pointerLocked = false;
@@ -147,6 +158,7 @@ let roundModalTimeout: number | null = null;
 let faceDataUrl: string | null = null;
 const playerFaces = new Map<string, string | null>();
 const faceTextureCache = new Map<string, THREE.Texture>();
+const faceTextureLoadPromises = new Map<string, Promise<THREE.Texture>>();
 
 const PITCH_LIMIT = 1.5;
 const RECOIL_RETURN_SPEED = 14;
@@ -239,6 +251,7 @@ let leavingMatch = false;
 let cleanedUp = false;
 let inEditor = false;
 let mapLoadToken = 0;
+let mapWarmupActive = false;
 
 const pendingInputs: InputPayload[] = [];
 let inputSeq = 0;
@@ -382,15 +395,24 @@ function connect() {
       clientId = msg.id;
       mapData = msg.map;
       hudStatus.textContent = 'Loading map...';
-      preloadMapAssets(msg.map)
+      Promise.all([preloadMapAssets(msg.map), preloadPlayerFaceTextures(msg.playersMeta)])
         .catch((err) => {
           console.warn('Map preload warning:', err);
         })
-        .then(() => {
+        .then(async () => {
           if (mapLoadToken !== token || !mapData) {
             return;
           }
-          buildMap(msg.map);
+          hudStatus.textContent = 'Building map...';
+          const group = await buildMap(msg.map);
+          if (mapLoadToken !== token || !mapData || !group) {
+            return;
+          }
+          hudStatus.textContent = 'Optimizing map...';
+          await warmupMapScene(msg.map, group);
+          if (mapLoadToken !== token || !mapData || mapGroup !== group) {
+            return;
+          }
           inMatch = true;
           menu.style.display = 'none';
           if (msg.playersMeta) {
@@ -708,6 +730,10 @@ function openExitModal() {
   document.exitPointerLock();
   closeBuyMenu();
   pressedKeys.clear();
+  inputState.forward = 0;
+  inputState.strafe = 0;
+  inputState.jump = false;
+  inputState.crouch = false;
   inputState.shoot = false;
   exitModal.classList.remove('hidden');
 }
@@ -739,6 +765,10 @@ function closeRoundModal() {
 function showRoundModal(title: string, side: Side | null, autoHideMs?: number) {
   document.exitPointerLock();
   pressedKeys.clear();
+  inputState.forward = 0;
+  inputState.strafe = 0;
+  inputState.jump = false;
+  inputState.crouch = false;
   inputState.shoot = false;
   roundModalTitle.textContent = title;
   setRoundModalTone(side);
@@ -825,6 +855,7 @@ function showFfaStatsModal(winners: Array<{ id: string; name: string; kills: num
 }
 
 function clearMeshes() {
+  mapLoadToken += 1;
   for (const mesh of playerMeshes.values()) {
     scene.remove(mesh);
   }
@@ -975,6 +1006,147 @@ function preloadMapAssets(map: MapData): Promise<void> {
   return Promise.all(tasks).then(() => undefined);
 }
 
+function preloadFaceTexture(url: string): Promise<THREE.Texture> {
+  const cached = faceTextureCache.get(url);
+  if (cached) {
+    return Promise.resolve(cached);
+  }
+  const existing = faceTextureLoadPromises.get(url);
+  if (existing) {
+    return existing;
+  }
+  const promise = new Promise<THREE.Texture>((resolve) => {
+    const texture = textureLoader.load(
+      url,
+      () => resolve(texture),
+      undefined,
+      () => resolve(texture)
+    );
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    faceTextureCache.set(url, texture);
+  });
+  faceTextureLoadPromises.set(url, promise);
+  return promise;
+}
+
+function preloadPlayerFaceTextures(playersMeta?: Array<{ face?: string }>): Promise<void> {
+  if (!playersMeta?.length) {
+    return Promise.resolve();
+  }
+  const tasks = playersMeta
+    .map((player) => player.face)
+    .filter((face): face is string => Boolean(face))
+    .map((face) =>
+      Promise.race([
+        preloadFaceTexture(face).then(() => undefined).catch(() => undefined),
+        new Promise<void>((resolve) => setTimeout(resolve, ASSET_PRELOAD_TIMEOUT_MS)),
+      ])
+    );
+  return Promise.all(tasks).then(() => undefined);
+}
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function collectWarmupSpawnPoints(map: MapData): THREE.Vector3[] {
+  const candidates = [...map.spawns.T, ...map.spawns.CT];
+  if (!candidates.length) {
+    return [];
+  }
+  const unique: THREE.Vector3[] = [];
+  for (const spawn of candidates) {
+    const point = new THREE.Vector3(spawn[0], spawn[1] + EYE_HEIGHT, spawn[2]);
+    if (unique.some((entry) => entry.distanceToSquared(point) < 1)) {
+      continue;
+    }
+    unique.push(point);
+  }
+  if (unique.length <= MAP_WARMUP_MAX_SPAWNS) {
+    return unique;
+  }
+  const selected: THREE.Vector3[] = [];
+  const lastIndex = unique.length - 1;
+  for (let i = 0; i < MAP_WARMUP_MAX_SPAWNS; i += 1) {
+    const index = Math.round((i * lastIndex) / Math.max(1, MAP_WARMUP_MAX_SPAWNS - 1));
+    selected.push(unique[index].clone());
+  }
+  return selected;
+}
+
+async function warmupMapScene(map: MapData, group: THREE.Group): Promise<void> {
+  if (mapGroup !== group) {
+    return;
+  }
+  scene.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(group);
+  if (bounds.isEmpty()) {
+    return;
+  }
+
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const radius = Math.max(size.length() * 0.5, 12);
+  const far = Math.max(200, radius * 3);
+  const warmCamera = new THREE.PerspectiveCamera(100, camera.aspect, 0.01, far);
+  const spawnPoints = collectWarmupSpawnPoints(map);
+  if (!spawnPoints.length) {
+    spawnPoints.push(center.clone().setY(center.y + EYE_HEIGHT));
+  }
+
+  const decorVisibility = decorCullList.map((entry) => entry.object.visible);
+  const previousAutoClear = renderer.autoClear;
+  const previousDpr = dynamicDpr;
+  mapWarmupActive = true;
+  renderer.autoClear = true;
+  renderer.setPixelRatio(MIN_DPR);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  for (const entry of decorCullList) {
+    entry.object.visible = true;
+  }
+
+  try {
+    await nextFrame();
+    for (const point of spawnPoints) {
+      if (mapGroup !== group) {
+        return;
+      }
+      const clampedY = THREE.MathUtils.clamp(point.y, bounds.min.y + 0.8, bounds.max.y + 3);
+      warmCamera.position.set(point.x, clampedY, point.z);
+      for (const direction of MAP_WARMUP_DIRECTIONS) {
+        warmCamera.lookAt(
+          warmCamera.position.x + direction.x,
+          warmCamera.position.y + direction.y,
+          warmCamera.position.z + direction.z
+        );
+        warmCamera.updateMatrixWorld(true);
+        renderer.compile(scene, warmCamera);
+        renderer.render(scene, warmCamera);
+        await nextFrame();
+      }
+    }
+
+    warmCamera.position.set(center.x, bounds.max.y + Math.max(10, radius * 0.8), center.z);
+    warmCamera.lookAt(center);
+    warmCamera.updateMatrixWorld(true);
+    renderer.compile(scene, warmCamera);
+    renderer.render(scene, warmCamera);
+    await nextFrame();
+  } finally {
+    for (let i = 0; i < decorCullList.length; i += 1) {
+      decorCullList[i].object.visible = decorVisibility[i] ?? true;
+    }
+    renderer.autoClear = previousAutoClear;
+    renderer.setPixelRatio(previousDpr);
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    mapWarmupActive = false;
+  }
+}
+
 function getMapMaterial(
   texturePath?: string,
   color?: string,
@@ -1086,11 +1258,8 @@ function getModel(path: string): Promise<THREE.Group> {
 function getFaceTexture(url: string): THREE.Texture {
   let tex = faceTextureCache.get(url);
   if (!tex) {
-    tex = textureLoader.load(url);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    faceTextureCache.set(url, tex);
+    preloadFaceTexture(url);
+    tex = faceTextureCache.get(url)!;
   }
   return tex;
 }
@@ -1208,15 +1377,18 @@ function getSingleMeshForInstancing(prefab: THREE.Group): THREE.Mesh | null {
       mesh = child as THREE.Mesh;
     }
   });
+  if (!valid || !mesh) {
+    return null;
+  }
+
+  const singleMesh = mesh as THREE.Mesh;
   if (
-    !valid ||
-    !mesh ||
-    Array.isArray(mesh.material) ||
-    (mesh.morphTargetInfluences && mesh.morphTargetInfluences.length > 0)
+    Array.isArray(singleMesh.material) ||
+    (singleMesh.morphTargetInfluences && singleMesh.morphTargetInfluences.length > 0)
   ) {
     return null;
   }
-  return mesh;
+  return singleMesh;
 }
 
 function setViewWeapon(type: ViewWeaponType | null) {
@@ -1419,6 +1591,7 @@ function resetLocalState() {
   inputState.forward = 0;
   inputState.strafe = 0;
   inputState.jump = false;
+  inputState.crouch = false;
   inputState.shoot = false;
   inputState.reload = false;
   inputState.throwGrenade = false;
@@ -1534,7 +1707,7 @@ resetHud();
 refreshModeUI();
 restoreEditorSession();
 
-function buildMap(map: MapData) {
+async function buildMap(map: MapData): Promise<THREE.Group> {
   if (mapGroup) {
     scene.remove(mapGroup);
   }
@@ -1606,6 +1779,10 @@ function buildMap(map: MapData) {
     group.add(instanced);
   }
 
+  addDecals(map, group);
+  scene.add(group);
+  mapGroup = group;
+
   if (map.models) {
     const modelGroups = new Map<string, ModelDef[]>();
     for (const model of map.models) {
@@ -1617,8 +1794,15 @@ function buildMap(map: MapData) {
       }
     }
 
-    for (const [path, models] of modelGroups.entries()) {
-      getModel(path).then((prefab) => {
+    await Promise.all(
+      Array.from(modelGroups.entries()).map(async ([path, models]) => {
+        let prefab: THREE.Group;
+        try {
+          prefab = await getModel(path);
+        } catch (err) {
+          console.warn('Failed to load map model', path, err);
+          return;
+        }
         if (mapGroup !== group) {
           return;
         }
@@ -1711,13 +1895,9 @@ function buildMap(map: MapData) {
             addDecorCullEntry(instance);
           }
         }
-      });
-    }
+      })
+    );
   }
-  addDecals(map, group);
-  scene.add(group);
-  mapGroup = group;
-
   if (showColliderModels) {
     const debugGroup = new THREE.Group();
     const boxes = showAllColliders ? map.boxes : map.boxes.filter((box) => box.type === 'collider_model');
@@ -1751,6 +1931,7 @@ function buildMap(map: MapData) {
     scene.add(debugGroup);
     colliderGroup = debugGroup;
   }
+  return group;
 }
 
 function handleSnapshot(snapshot: ServerSnapshot) {
@@ -1793,7 +1974,7 @@ function handleSnapshot(snapshot: ServerSnapshot) {
     for (const input of pendingInputs) {
       const moved = movePlayer(
         { pos: localState.pos, vel: localState.vel, onGround: localState.onGround },
-        { f: input.move.f, s: input.move.s, jump: input.jump },
+        { f: input.move.f, s: input.move.s, jump: input.jump, crouch: input.crouch },
         input.yaw,
         input.dt,
         mapData
@@ -2147,20 +2328,38 @@ function updateTracers(now: number) {
   }
 }
 
-function updateInputState() {
-  inputState.forward = 0;
-  inputState.strafe = 0;
+function approach(current: number, target: number, delta: number): number {
+  if (current < target) {
+    return Math.min(current + delta, target);
+  }
+  return Math.max(current - delta, target);
+}
+
+function updateInputState(dt: number) {
+  let forward = 0;
+  let strafeTarget = 0;
   if (pressedKeys.has('KeyW')) {
-    inputState.forward += 1;
+    forward += 1;
   }
   if (pressedKeys.has('KeyS')) {
-    inputState.forward -= 1;
+    forward -= 1;
   }
   if (pressedKeys.has('KeyD')) {
-    inputState.strafe += 1;
+    strafeTarget += 1;
   }
   if (pressedKeys.has('KeyA')) {
-    inputState.strafe -= 1;
+    strafeTarget -= 1;
+  }
+  inputState.forward = forward;
+  const strafeRate =
+    strafeTarget === 0
+      ? STRAFE_INPUT_RELEASE
+      : Math.sign(strafeTarget) !== Math.sign(inputState.strafe) && Math.abs(inputState.strafe) > 0.01
+      ? STRAFE_INPUT_REVERSE
+      : STRAFE_INPUT_ACCEL;
+  inputState.strafe = approach(inputState.strafe, strafeTarget, strafeRate * dt);
+  if (Math.abs(inputState.strafe) < 1e-3) {
+    inputState.strafe = 0;
   }
   inputState.jump = pressedKeys.has('Space');
   inputState.crouch =
@@ -2415,7 +2614,7 @@ function render() {
       return;
     }
 
-  updateInputState();
+  updateInputState(dt);
   updateRecoil(dt);
   applyRecoil(nowSeconds);
   sendInput(dt);
@@ -2483,6 +2682,11 @@ let fpsFrameCount = 0;
 let lastDprAdjust = lastFrameTime;
 
 function updateFps(nowMs: number) {
+  if (mapWarmupActive) {
+    fpsFrameCount = 0;
+    fpsLastSample = nowMs;
+    return;
+  }
   fpsFrameCount += 1;
   const elapsed = nowMs - fpsLastSample;
   if (elapsed < 250) {
@@ -2511,7 +2715,7 @@ function updateFps(nowMs: number) {
 }
 
 function updateDecorCulling(nowMs: number) {
-  if (!decorCullList.length) {
+  if (mapWarmupActive || !decorCullList.length) {
     return;
   }
   if (nowMs - lastDecorCull < DECOR_CULL_INTERVAL) {

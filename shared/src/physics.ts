@@ -23,6 +23,10 @@ const JUMP_SPEED = 7;
 const STEP_HEIGHT = 0.45;
 const STEP_CHECK_EPS = 0.12;
 const STEP_CHECK_MAX_RISE = 0.65;
+const PENETRATION_RESOLVE_STEP = 0.05;
+const PENETRATION_RESOLVE_MAX_DIST = PLAYER_RADIUS + STEP_HEIGHT + 0.35;
+const PENETRATION_RESOLVE_DIRECTIONS = 16;
+const PENETRATION_Y_OFFSETS = [0, STEP_HEIGHT * 0.5, STEP_HEIGHT, -0.15];
 
 export function movePlayer(
   state: PhysicsState,
@@ -33,8 +37,9 @@ export function movePlayer(
 ): PhysicsState {
   const crouching = !!move.crouch;
   const speedMul = crouching ? CROUCH_SPEED_MULT : 1;
-  const pos: Vec3 = [state.pos[0], state.pos[1], state.pos[2]];
+  let pos: Vec3 = [state.pos[0], state.pos[1], state.pos[2]];
   const vel: Vec3 = [state.vel[0], state.vel[1], state.vel[2]];
+  pos = resolvePenetration(pos, map);
 
   const hasInput = Math.abs(move.f) > 0.01 || Math.abs(move.s) > 0.01;
 
@@ -68,6 +73,7 @@ export function movePlayer(
 
   const baseGround = state.onGround ? groundHeightAt(pos, map, pos[1]) : null;
   const moved = moveWithCollisions(pos, vel, dt, map, state.onGround, move.jump, baseGround);
+  moved.pos = resolvePenetration(moved.pos, map);
   const onGround = isOnGround(moved.pos, map);
   if (onGround && moved.vel[1] < 0) {
     moved.vel[1] = 0;
@@ -103,6 +109,39 @@ export function collidesAt(pos: Vec3, map: MapData): boolean {
     }
   }
   return false;
+}
+
+export function resolvePenetration(pos: Vec3, map: MapData): Vec3 {
+  if (!collidesAt(pos, map)) {
+    return pos;
+  }
+
+  for (const yOffset of PENETRATION_Y_OFFSETS) {
+    const candidate: Vec3 = [pos[0], pos[1] + yOffset, pos[2]];
+    if (!collidesAt(candidate, map)) {
+      return candidate;
+    }
+  }
+
+  const steps = Math.ceil(PENETRATION_RESOLVE_MAX_DIST / PENETRATION_RESOLVE_STEP);
+  for (let step = 1; step <= steps; step += 1) {
+    const radius = step * PENETRATION_RESOLVE_STEP;
+    for (const yOffset of PENETRATION_Y_OFFSETS) {
+      for (let dir = 0; dir < PENETRATION_RESOLVE_DIRECTIONS; dir += 1) {
+        const angle = (dir / PENETRATION_RESOLVE_DIRECTIONS) * Math.PI * 2;
+        const candidate: Vec3 = [
+          pos[0] + Math.cos(angle) * radius,
+          pos[1] + yOffset,
+          pos[2] + Math.sin(angle) * radius,
+        ];
+        if (!collidesAt(candidate, map)) {
+          return candidate;
+        }
+      }
+    }
+  }
+
+  return pos;
 }
 
 function moveWithCollisions(
@@ -144,7 +183,7 @@ function moveAxis(
     const stepNext: Vec3 = [next[0], next[1] + STEP_HEIGHT, next[2]];
     if (!collidesAt(stepUpPos, map) && !collidesAt(stepNext, map)) {
       const nextGround = onGround && baseGround !== null ? groundHeightAt(stepNext, map, baseGround) : null;
-      if (nextGround !== null && nextGround - baseGround > STEP_CHECK_MAX_RISE) {
+      if (baseGround !== null && nextGround !== null && nextGround - baseGround > STEP_CHECK_MAX_RISE) {
         vel[axis] = 0;
         return pos;
       }
