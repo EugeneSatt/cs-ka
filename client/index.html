@@ -8,40 +8,76 @@
   </head>
   <body>
     <div id="menu" class="overlay">
-      <h1>CS Vert</h1>
-      <label for="mode">Mode</label>
-      <select id="mode">
-        <option value="team">Teams</option>
-        <option value="ffa">Free-for-all</option>
-      </select>
-      <label for="team-size">Team size</label>
-      <select id="team-size">
-        <option value="1">1 vs 1</option>
-        <option value="2">2 vs 2</option>
-        <option value="3">3 vs 3</option>
-        <option value="4" selected>4 vs 4</option>
-      </select>
-      <label for="primary">Primary weapon</label>
-      <select id="primary">
-        <option value="rifle">Rifle</option>
-        <option value="sniper">Sniper</option>
-        <option value="shotgun">Shotgun</option>
-      </select>
-      <label for="player-name">Name</label>
-      <input id="player-name" type="text" maxlength="16" placeholder="Player" />
-      <label for="face-upload">Face photo</label>
-      <input id="face-upload" type="file" accept="image/*" />
-      <img id="face-preview" class="face-preview hidden" alt="Face preview" />
-      <label for="side">Team</label>
-      <select id="side">
-        <option value="T">Terrorists</option>
-        <option value="CT">Counter-Terrorists</option>
-      </select>
-      <div class="actions">
-        <button id="join">Join Match</button>
-        <button id="editor" class="ghost">Editor</button>
+      <div class="menu-shell">
+        <div class="menu-header">
+          <h1>CS Vert</h1>
+          <div class="menu-subtitle">Configure match settings on the left and join a live room on the right.</div>
+        </div>
+
+        <div class="menu-layout">
+          <div class="menu-column">
+            <div class="menu-card settings-card">
+              <div class="field-group">
+                <label for="mode">Mode</label>
+                <select id="mode">
+                  <option value="team">Teams</option>
+                  <option value="ffa">Free-for-all</option>
+                </select>
+              </div>
+
+              <div class="field-group">
+                <label for="team-size">Team size</label>
+                <select id="team-size">
+                  <option value="1">1 vs 1</option>
+                  <option value="2">2 vs 2</option>
+                  <option value="3">3 vs 3</option>
+                  <option value="4" selected>4 vs 4</option>
+                </select>
+              </div>
+
+              <div class="field-group">
+                <label for="player-name">Name</label>
+                <input id="player-name" type="text" maxlength="16" placeholder="Player" />
+              </div>
+
+              <div class="field-group">
+                <label for="face-upload">Face photo</label>
+                <input id="face-upload" type="file" accept="image/*" />
+                <img id="face-preview" class="face-preview hidden" alt="Face preview" />
+              </div>
+
+              <div class="field-group">
+                <label for="side">Team</label>
+                <select id="side">
+                  <option value="T">Terrorists</option>
+                  <option value="CT">Counter-Terrorists</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="menu-card action-card">
+              <div class="action-copy">
+                Join uses the selected room. Room settings apply when you enter an empty room.
+              </div>
+              <div class="actions">
+                <button id="join" type="button">Select Room</button>
+                <button id="editor" type="button" class="ghost">Editor</button>
+              </div>
+              <div class="hint">Click in the scene to lock pointer.</div>
+            </div>
+          </div>
+
+          <div class="menu-column menu-column-rooms">
+            <div class="room-panel menu-card">
+              <div class="room-panel-head">
+                <span>Rooms</span>
+                <span id="room-connection">Connecting...</span>
+              </div>
+              <div id="room-list" class="room-list"></div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="hint">Click in the scene to lock pointer.</div>
     </div>
 
     <div id="hud">
@@ -61,9 +97,9 @@
       <div id="buy-menu" class="buy hidden">
         <div class="buy-title">Buy (first 10s)</div>
         <div class="buy-row">
-          <button data-primary="rifle">AK-47</button>
-          <button data-primary="sniper">Sniper</button>
-          <button data-primary="shotgun">Shotgun</button>
+          <button type="button" data-primary="rifle">AK-47</button>
+          <button type="button" data-primary="sniper">Sniper</button>
+          <button type="button" data-primary="shotgun">Shotgun</button>
         </div>
         <div class="buy-hint">B - Buy menu, 1/2/3 - Slots</div>
       </div>
@@ -76,8 +112,8 @@
         <h2>Leave match?</h2>
         <p>You can stay and continue playing.</p>
         <div class="game-modal-actions">
-          <button id="exit-confirm">Exit</button>
-          <button id="exit-cancel" class="ghost">Stay</button>
+          <button id="exit-confirm" type="button">Exit</button>
+          <button id="exit-cancel" type="button" class="ghost">Stay</button>
         </div>
       </div>
     </div>
@@ -87,7 +123,7 @@
         <h2 id="round-modal-title">Round result</h2>
         <div id="round-modal-body" class="round-modal-body"></div>
         <div class="game-modal-actions">
-          <button id="round-modal-close">Close</button>
+          <button id="round-modal-close" type="button">Close</button>
         </div>
       </div>
     </div>

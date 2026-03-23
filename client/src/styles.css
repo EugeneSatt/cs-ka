@@ -135,19 +135,66 @@ body {
   position: fixed;
   inset: 0;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
   align-items: center;
   justify-content: center;
   background: rgba(8, 10, 12, 0.85);
   backdrop-filter: blur(6px);
   z-index: 10;
+  padding: 24px;
+}
+
+.menu-shell {
+  width: min(1160px, 100%);
+  display: grid;
+  gap: 18px;
+}
+
+.menu-header {
+  display: grid;
+  gap: 6px;
 }
 
 .overlay h1 {
-  margin: 0 0 8px 0;
+  margin: 0;
   font-size: 36px;
   letter-spacing: 0.12em;
+}
+
+.menu-subtitle {
+  max-width: 640px;
+  color: var(--muted);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.menu-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 360px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.menu-column {
+  display: grid;
+  gap: 14px;
+}
+
+.menu-card {
+  border-radius: 16px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+}
+
+.settings-card {
+  display: grid;
+  gap: 12px;
+}
+
+.field-group {
+  display: grid;
+  gap: 8px;
 }
 
 .overlay label {
@@ -158,6 +205,7 @@ body {
 .overlay select,
 .overlay button,
 .overlay input {
+  width: 100%;
   font-family: inherit;
   font-size: 16px;
   padding: 8px 14px;
@@ -177,6 +225,18 @@ body {
 .actions {
   display: flex;
   gap: 10px;
+  width: 100%;
+}
+
+.action-card {
+  display: grid;
+  gap: 12px;
+}
+
+.action-copy {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .overlay .ghost {
@@ -202,9 +262,136 @@ body {
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
 }
 
+.room-panel {
+  display: grid;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.room-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+#room-connection {
+  color: var(--cool);
+}
+
+.room-list {
+  display: grid;
+  gap: 8px;
+}
+
+.room-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+}
+
+.room-card:hover {
+  border-color: rgba(243, 156, 74, 0.5);
+  transform: translateY(-1px);
+}
+
+.room-card.selected {
+  border-color: var(--accent);
+  background: rgba(243, 156, 74, 0.1);
+}
+
+.room-card.incompatible {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.room-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.room-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.room-card-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.room-card-mode {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(74, 163, 243, 0.14);
+  border: 1px solid rgba(74, 163, 243, 0.26);
+  color: var(--cool);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.room-card.incompatible .room-card-mode {
+  background: rgba(255, 107, 107, 0.14);
+  border-color: rgba(255, 107, 107, 0.26);
+  color: #ff8d8d;
+}
+
+.room-card-meta {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.room-card-status {
+  font-size: 12px;
+  color: var(--cool);
+  text-transform: uppercase;
+}
+
+.room-card-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.room-player-pill,
+.room-player-empty {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.room-player-empty {
+  color: var(--muted);
+}
+
 .hint {
   font-size: 12px;
   color: var(--muted);
+  text-align: left;
+}
+
+.overlay button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  filter: none;
 }
 
 .buy {
@@ -373,5 +560,31 @@ canvas {
   #bottom {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .overlay {
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow-y: auto;
+  }
+
+  .menu-shell {
+    width: 100%;
+  }
+
+  .menu-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .menu-column-rooms {
+    order: 2;
+  }
+
+  .menu-card {
+    padding: 16px;
+  }
+
+  .actions {
+    flex-direction: column;
   }
 }

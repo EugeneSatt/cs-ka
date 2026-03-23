@@ -63,10 +63,11 @@ export type ClientJoin = {
   type: 'join';
   name?: string;
   face?: string;
-  primary: WeaponType;
+  primary?: WeaponType;
   preferredSide?: Side;
   matchMode?: GameMode;
   teamSize?: number;
+  roomId?: string;
 };
 
 export type ClientBuy = {
@@ -79,7 +80,11 @@ export type ClientInput = {
   input: InputPayload;
 };
 
-export type ClientMessage = ClientJoin | ClientInput | ClientBuy;
+export type ClientLeave = {
+  type: 'leave';
+};
+
+export type ClientMessage = ClientJoin | ClientInput | ClientBuy | ClientLeave;
 
 export type PlayerSnapshot = {
   id: string;
@@ -109,6 +114,17 @@ export type PlayerMeta = {
   id: string;
   name: string;
   face?: string;
+};
+
+export type RoomSummary = {
+  id: string;
+  name: string;
+  mode: GameMode;
+  teamSize: number;
+  phase: RoundState['phase'];
+  playerCount: number;
+  capacity: number;
+  players: PlayerMeta[];
 };
 
 export type GrenadeSnapshot = {
@@ -201,6 +217,7 @@ export type ServerSnapshot = {
 export type WelcomeMessage = {
   type: 'welcome';
   id: string;
+  roomId: string;
   map: MapData;
   tickRate: number;
   playersMeta?: PlayerMeta[];
@@ -211,4 +228,14 @@ export type PlayerMetaMessage = {
   player: PlayerMeta;
 };
 
-export type ServerMessage = WelcomeMessage | ServerSnapshot | PlayerMetaMessage;
+export type RoomListMessage = {
+  type: 'room_list';
+  rooms: RoomSummary[];
+};
+
+export type LobbyErrorMessage = {
+  type: 'lobby_error';
+  message: string;
+};
+
+export type ServerMessage = WelcomeMessage | ServerSnapshot | PlayerMetaMessage | RoomListMessage | LobbyErrorMessage;

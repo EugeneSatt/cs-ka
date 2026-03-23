@@ -3,9 +3,12 @@ import * as THREE from 'three';
 import type {
   GrenadeSnapshot,
   InputPayload,
+  LobbyErrorMessage,
   MapData,
   ModelDef,
   PlayerSnapshot,
+  RoomListMessage,
+  RoomSummary,
   ServerMessage,
   ServerSnapshot,
   Vec3,
@@ -41,7 +44,6 @@ const showAllColliders = colliderParam === 'all';
 
 const menu = document.getElementById('menu') as HTMLDivElement;
 const joinButton = document.getElementById('join') as HTMLButtonElement;
-const primarySelect = document.getElementById('primary') as HTMLSelectElement;
 const editorButton = document.getElementById('editor') as HTMLButtonElement;
 const sideSelect = document.getElementById('side') as HTMLSelectElement;
 const modeSelect = document.getElementById('mode') as HTMLSelectElement;
@@ -49,6 +51,8 @@ const teamSizeSelect = document.getElementById('team-size') as HTMLSelectElement
 const nameInput = document.getElementById('player-name') as HTMLInputElement;
 const faceInput = document.getElementById('face-upload') as HTMLInputElement;
 const facePreview = document.getElementById('face-preview') as HTMLImageElement | null;
+const roomList = document.getElementById('room-list') as HTMLDivElement;
+const roomConnection = document.getElementById('room-connection') as HTMLSpanElement;
 
 const hudRound = document.getElementById('round') as HTMLDivElement;
 const hudTimer = document.getElementById('timer') as HTMLDivElement;
@@ -194,9 +198,9 @@ const FIRST_PERSON_WEAPONS: Partial<Record<ViewWeaponType, WeaponViewConfig>> = 
   },
   pistol: {
     path: '/beretta.glb',
-    pos: [0, 1.05, -0.28],
-    rot: [0, Math.PI, 0],
-    scale: 0.5,
+    pos: [0.28, -0.34, -0.42],
+    rot: [0.04, Math.PI + 0.08, 0.08],
+    scale: 0.42,
   },
   sniper: {
     path: '/awp.glb',
@@ -221,9 +225,9 @@ const HELD_WEAPONS: Partial<Record<ViewWeaponType, HeldWeaponConfig>> = {
   // },
   pistol: {
     path: '/beretta.glb',
-    pos: [0, 1.05, -0.28],
-    rot: [0, Math.PI, 0],
-    scale: 0.5,
+    pos: [0.52, 0.96, -0.12],
+    rot: [0, Math.PI + 0.12, -0.2],
+    scale: 0.34,
   },
   sniper: {
     path: '/awp.glb',
@@ -252,11 +256,18 @@ let cleanedUp = false;
 let inEditor = false;
 let mapLoadToken = 0;
 let mapWarmupActive = false;
+let currentRoomId: string | null = null;
+let selectedRoomId: string | null = null;
+let joiningRoomId: string | null = null;
+let reconnectTimer: number | null = null;
+let roomSummaries: RoomSummary[] = [];
+let reconnectingRoomId: string | null = null;
+let ignoreNextSocketClose = false;
 
 const pendingInputs: InputPayload[] = [];
 let inputSeq = 0;
 
-const JOIN_LABEL = 'Join Match';
+const JOIN_LABEL = 'Join Room';
 
 const localState = {
   pos: [0, 0.1, 0] as Vec3,
@@ -338,6 +349,12 @@ type HumanoidParts = {
   weaponRequestId: number;
 };
 
+type HumanoidMaterials = {
+  bodyMat: THREE.MeshStandardMaterial;
+  limbMat: THREE.MeshStandardMaterial;
+  headMat: THREE.MeshStandardMaterial;
+};
+
 if (import.meta.hot) {
   import.meta.hot.accept('../../shared/maps/arena.json', (mod) => {
     if (mod?.default) {
@@ -353,44 +370,230 @@ if (import.meta.hot) {
 function connect() {
   cleanedUp = false;
   leavingMatch = false;
-  const primary = primarySelect.value as WeaponType;
   const matchMode = modeSelect.value as 'team' | 'ffa';
   const teamSize = Number(teamSizeSelect.value) || 4;
   const serverParam = new URL(window.location.href).searchParams.get('server');
   const envUrl = (import.meta as any).env?.VITE_WS_URL as string | undefined;
-  const wsUrl = serverParam ?? envUrl ?? `ws://${window.location.hostname}:8080`;
+  return serverParam ?? envUrl ?? `ws://${window.location.hostname}:8080`;
+}
 
-  hudStatus.textContent = 'Connecting...';
-  joinButton.disabled = true;
-  joinButton.textContent = 'Connecting...';
+function getSelectedRoomSummary(): RoomSummary | null {
+  return roomSummaries.find((room) => room.id === selectedRoomId) ?? null;
+}
 
-  socket = new WebSocket(wsUrl);
+function formatRoomPhase(phase: RoomSummary['phase']): string {
+  switch (phase) {
+    case 'freeze':
+      return 'Freeze';
+    case 'live':
+      return 'Live';
+    case 'post':
+      return 'Post';
+    case 'match_over':
+      return 'Ended';
+    default:
+      return 'Waiting';
+  }
+}
+
+function getSelectedMode(): 'team' | 'ffa' {
+  return modeSelect.value as 'team' | 'ffa';
+}
+
+function isRoomModeCompatible(room: RoomSummary): boolean {
+  return room.playerCount === 0 || room.mode === getSelectedMode();
+}
+
+function renderRoomList() {
+  roomList.innerHTML = '';
+  if (!roomSummaries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'room-player-empty';
+    empty.textContent = 'No rooms yet.';
+    roomList.appendChild(empty);
+    return;
+  }
+  for (const room of roomSummaries) {
+    const compatible = isRoomModeCompatible(room);
+    const card = document.createElement('div');
+    card.className = `room-card${room.id === selectedRoomId ? ' selected' : ''}${compatible ? '' : ' incompatible'}`;
+
+    const head = document.createElement('div');
+    head.className = 'room-card-head';
+    const titleRow = document.createElement('div');
+    titleRow.className = 'room-card-title-row';
+    const title = document.createElement('div');
+    title.className = 'room-card-title';
+    title.textContent = room.name;
+    const modeBadge = document.createElement('div');
+    modeBadge.className = 'room-card-mode';
+    modeBadge.textContent = room.mode === 'ffa' ? 'FFA' : `${room.teamSize}v${room.teamSize}`;
+    const status = document.createElement('div');
+    status.className = 'room-card-status';
+    status.textContent = formatRoomPhase(room.phase);
+    titleRow.appendChild(title);
+    titleRow.appendChild(modeBadge);
+    head.appendChild(titleRow);
+    head.appendChild(status);
+
+    const meta = document.createElement('div');
+    meta.className = 'room-card-meta';
+    meta.textContent = `${room.playerCount}/${room.capacity}${compatible ? '' : ' / mode mismatch'}`;
+
+    const players = document.createElement('div');
+    players.className = 'room-card-players';
+    if (room.players.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'room-player-empty';
+      empty.textContent = 'Empty room';
+      players.appendChild(empty);
+    } else {
+      for (const player of room.players) {
+        const pill = document.createElement('div');
+        pill.className = 'room-player-pill';
+        pill.textContent = player.name;
+        players.appendChild(pill);
+      }
+    }
+
+    card.appendChild(head);
+    card.appendChild(meta);
+    card.appendChild(players);
+    card.addEventListener('click', () => {
+      selectedRoomId = room.id;
+      renderRoomList();
+      updateJoinButtonState();
+    });
+    roomList.appendChild(card);
+  }
+}
+
+function updateJoinButtonState() {
+  const selectedRoom = getSelectedRoomSummary();
+  const socketReady = Boolean(socket && socket.readyState === WebSocket.OPEN);
+  const compatible = selectedRoom ? isRoomModeCompatible(selectedRoom) : false;
+  joinButton.disabled = !selectedRoom || !socketReady || Boolean(joiningRoomId) || inMatch || !compatible;
+  if (joiningRoomId) {
+    joinButton.textContent = 'Joining...';
+    return;
+  }
+  if (selectedRoom && !compatible) {
+    joinButton.textContent = 'Wrong Mode';
+    return;
+  }
+  joinButton.textContent = selectedRoom ? `Join ${selectedRoom.name}` : JOIN_LABEL;
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer !== null || inEditor) {
+    return;
+  }
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null;
+    ensureSocket();
+  }, 1500);
+}
+
+function clearReconnect() {
+  if (reconnectTimer !== null) {
+    window.clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function sendJoinRequest(roomId: string) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    joiningRoomId = roomId;
+    updateJoinButtonState();
+    ensureSocket();
+    return;
+  }
+  const room = roomSummaries.find((entry) => entry.id === roomId);
+  const isReconnectJoin = reconnectingRoomId === roomId;
+  const matchMode = isReconnectJoin ? room?.mode ?? latestSnapshot?.round.mode ?? getSelectedMode() : getSelectedMode();
+  const teamSize = isReconnectJoin
+    ? room?.teamSize ?? latestSnapshot?.round.teamSize ?? (Number(teamSizeSelect.value) || 4)
+    : Number(teamSizeSelect.value) || 4;
+  if (room && !isReconnectJoin && !isRoomModeCompatible(room)) {
+    hudStatus.textContent = `Selected room uses ${room.mode === 'ffa' ? 'Free-for-all' : 'Teams'} mode.`;
+    updateJoinButtonState();
+    return;
+  }
+  joiningRoomId = roomId;
+  hudStatus.textContent = room ? `Joining ${room.name}...` : 'Joining room...';
+  updateJoinButtonState();
+  const name = nameInput?.value.trim();
+  const join = {
+    type: 'join',
+    roomId,
+    name: name || undefined,
+    face: faceDataUrl || undefined,
+    preferredSide: sideSelect.value as Side,
+    matchMode,
+    teamSize,
+  };
+  socket.send(JSON.stringify(join));
+}
+
+function ensureSocket() {
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  clearReconnect();
+  cleanedUp = false;
+  socket = new WebSocket(connect());
+  roomConnection.textContent = 'Connecting...';
+  updateJoinButtonState();
 
   socket.addEventListener('open', () => {
-    joinButton.disabled = false;
-    joinButton.textContent = JOIN_LABEL;
-    const name = nameInput?.value.trim();
-    const join = {
-      type: 'join',
-      name: name || undefined,
-      face: faceDataUrl || undefined,
-      primary,
-      preferredSide: sideSelect.value as Side,
-      matchMode,
-      teamSize,
-    };
-    socket?.send(JSON.stringify(join));
+    roomConnection.textContent = 'Online';
+    updateJoinButtonState();
+    if (!inMatch && !joiningRoomId) {
+      hudStatus.textContent = 'Lobby online.';
+    }
+    if (joiningRoomId) {
+      const pendingRoomId = joiningRoomId;
+      sendJoinRequest(pendingRoomId);
+    }
   });
 
   socket.addEventListener('error', () => {
-    hudStatus.textContent = 'Connection error.';
-    joinButton.disabled = false;
-    joinButton.textContent = JOIN_LABEL;
+    roomConnection.textContent = 'Error';
+    if (joiningRoomId) {
+      hudStatus.textContent = 'Connection error.';
+      joiningRoomId = null;
+      updateJoinButtonState();
+    }
   });
 
   socket.addEventListener('message', (event) => {
     const msg = JSON.parse(event.data) as ServerMessage;
+    if (msg.type === 'room_list') {
+      roomSummaries = (msg as RoomListMessage).rooms;
+      if (!roomSummaries.some((room) => room.id === selectedRoomId)) {
+        selectedRoomId = roomSummaries[0]?.id ?? null;
+      }
+      renderRoomList();
+      updateJoinButtonState();
+      return;
+    }
+    if (msg.type === 'lobby_error') {
+      const errorMsg = msg as LobbyErrorMessage;
+      if (reconnectingRoomId) {
+        reconnectingRoomId = null;
+        returnToLobby(errorMsg.message);
+        return;
+      }
+      hudStatus.textContent = errorMsg.message;
+      joiningRoomId = null;
+      updateJoinButtonState();
+      return;
+    }
     if (msg.type === 'welcome') {
+      currentRoomId = msg.roomId;
+      reconnectingRoomId = null;
+      joiningRoomId = null;
+      updateJoinButtonState();
       const token = ++mapLoadToken;
       clientId = msg.id;
       mapData = msg.map;
@@ -421,9 +624,11 @@ function connect() {
             }
           }
         });
+      return;
     }
     if (msg.type === 'snapshot') {
       handleSnapshot(msg);
+      return;
     }
     if (msg.type === 'player_meta') {
       playerFaces.set(msg.player.id, msg.player.face ?? null);
@@ -431,20 +636,38 @@ function connect() {
   });
 
   socket.addEventListener('close', () => {
-    joinButton.disabled = false;
-    joinButton.textContent = JOIN_LABEL;
-    handleDisconnect(leavingMatch);
+    const hadRoom = Boolean(currentRoomId || inMatch);
+    const ignoredClose = ignoreNextSocketClose;
+    ignoreNextSocketClose = false;
+    socket = null;
+    roomConnection.textContent = 'Offline';
+    joiningRoomId = null;
+    updateJoinButtonState();
+    if (ignoredClose) {
+      return;
+    }
+    if (hadRoom && currentRoomId && !leavingMatch && !inEditor) {
+      reconnectingRoomId = currentRoomId;
+      joiningRoomId = currentRoomId;
+      inMatch = false;
+      hudStatus.textContent = 'Reconnecting to room...';
+      scheduleReconnect();
+      return;
+    }
+    if (hadRoom) {
+      handleDisconnect(false);
+    } else if (!inEditor) {
+      hudStatus.textContent = 'Lobby disconnected.';
+    }
+    scheduleReconnect();
   });
 }
 
 joinButton.addEventListener('click', () => {
-  if (socket && socket.readyState === WebSocket.CONNECTING) {
-    socket.close();
+  if (!selectedRoomId) {
     return;
   }
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    connect();
-  }
+  sendJoinRequest(selectedRoomId);
 });
 
 editorButton.addEventListener('click', () => {
@@ -460,7 +683,9 @@ exitCancelButton.addEventListener('click', () => {
   closeExitModal();
 });
 
-roundModalCloseButton.addEventListener('click', () => {
+roundModalCloseButton.addEventListener('click', (event) => {
+  event.preventDefault();
+  event.stopPropagation();
   closeRoundModal();
 });
 
@@ -482,6 +707,8 @@ function refreshModeUI() {
   teamSizeSelect.classList.toggle('hidden', !isTeam);
   (sideSelect.previousElementSibling as HTMLElement | null)?.classList.toggle('hidden', !isTeam);
   (teamSizeSelect.previousElementSibling as HTMLElement | null)?.classList.toggle('hidden', !isTeam);
+  renderRoomList();
+  updateJoinButtonState();
 }
 
 function setFaceDataUrl(url: string | null) {
@@ -852,6 +1079,22 @@ function showFfaStatsModal(winners: Array<{ id: string; name: string; kills: num
     roundModalBody.appendChild(row);
   }
   showRoundModal('FFA Match Stats', toneSide);
+}
+
+function showTeamMatchOverModal() {
+  clearRoundModalBody();
+  const scores = latestSnapshot?.round.scores;
+  const sides = latestSnapshot?.round.sideByTeam;
+  let toneSide: Side | null = null;
+  let title = 'Match Over';
+  if (scores && sides) {
+    appendRoundModalLine(`Final score: A ${scores.A} - ${scores.B} B`);
+    if (scores.A !== scores.B) {
+      toneSide = scores.A > scores.B ? sides.A : sides.B;
+      title = toneSide === 'T' ? 'Terrorists Win Match' : 'Counter-Terrorists Win Match';
+    }
+  }
+  showRoundModal(title, toneSide);
 }
 
 function clearMeshes() {
@@ -1581,6 +1824,7 @@ function chooseBuy(primary: WeaponType) {
 function resetLocalState() {
   clientId = '';
   mapData = null;
+  currentRoomId = null;
   latestSnapshot = null;
   serverTimeOffset = 0;
   snapshotBuffer.length = 0;
@@ -1602,7 +1846,7 @@ function resetLocalState() {
   localState.hp = 100;
   localState.alive = false;
   localState.weapon = 'primary';
-  localState.primary = primarySelect.value as WeaponType;
+  localState.primary = 'rifle';
   localState.ammo.primary = WEAPON_CONFIG[localState.primary].magSize;
   localState.ammo.pistol = WEAPON_CONFIG.pistol.magSize;
   localState.grenades = 1;
@@ -1624,6 +1868,23 @@ function resetLocalState() {
   updateScope(true);
 }
 
+function returnToLobby(status: string) {
+  inMatch = false;
+  joiningRoomId = null;
+  reconnectingRoomId = null;
+  resetPlayState();
+  resetLocalState();
+  resetHud();
+  hudStatus.textContent = status;
+  menu.style.display = 'flex';
+  leavingMatch = false;
+  closeBuyMenu();
+  closeExitModal();
+  closeRoundModal();
+  renderRoomList();
+  updateJoinButtonState();
+}
+
 function handleDisconnect(userInitiated: boolean) {
   if (cleanedUp) {
     return;
@@ -1633,35 +1894,31 @@ function handleDisconnect(userInitiated: boolean) {
     matchOverTimeout = null;
   }
   cleanedUp = true;
-  inMatch = false;
   inEditor = false;
   socket = null;
-  resetPlayState();
-  resetLocalState();
-  resetHud();
-  hudStatus.textContent = userInitiated ? 'Returned to menu.' : 'Disconnected.';
-  menu.style.display = 'flex';
-  leavingMatch = false;
-  closeBuyMenu();
+  returnToLobby(userInitiated ? 'Returned to lobby.' : 'Disconnected.');
 }
 
 function leaveMatch() {
-  if (!inMatch && !socket) {
+  if (!inMatch && !currentRoomId) {
     menu.style.display = 'flex';
     return;
   }
-  leavingMatch = true;
-  socket?.close();
-  handleDisconnect(true);
+  if (socket && socket.readyState === WebSocket.OPEN && currentRoomId) {
+    socket.send(JSON.stringify({ type: 'leave' }));
+  }
+  returnToLobby('Returned to lobby.');
 }
 
 function enterEditor(saved?: EditorSession) {
+  inEditor = true;
+  clearReconnect();
   if (socket) {
+    ignoreNextSocketClose = true;
     socket.close();
-    handleDisconnect(true);
+    socket = null;
   }
   clearMeshes();
-  inEditor = true;
   cleanedUp = false;
   closeExitModal();
   closeRoundModal();
@@ -1701,11 +1958,19 @@ function exitEditor() {
   saveEditorSession({ active: false, pos: editorState.pos, yaw: editorState.yaw, pitch: editorState.pitch });
   closeBuyMenu();
   updateScope(true);
+  ensureSocket();
+  renderRoomList();
+  updateJoinButtonState();
 }
 
 resetHud();
 refreshModeUI();
 restoreEditorSession();
+renderRoomList();
+updateJoinButtonState();
+if (!inEditor) {
+  ensureSocket();
+}
 
 async function buildMap(map: MapData): Promise<THREE.Group> {
   if (mapGroup) {
@@ -1993,6 +2258,7 @@ function handleSnapshot(snapshot: ServerSnapshot) {
 }
 
 function updatePlayerMeshes(players: PlayerSnapshot[]) {
+  updateFfaPaletteAssignments(players);
   const seen = new Set<string>();
   for (const player of players) {
     seen.add(player.id);
@@ -2000,12 +2266,13 @@ function updatePlayerMeshes(players: PlayerSnapshot[]) {
       continue;
     }
     if (!playerMeshes.has(player.id)) {
-      const mesh = createPlayerMesh(player.side);
+      const mesh = createPlayerMesh(player);
       scene.add(mesh);
       playerMeshes.set(player.id, mesh);
     }
     const mesh = playerMeshes.get(player.id);
     if (mesh) {
+      applyPlayerPalette(mesh, player);
       updateNameSprite(mesh, player.name);
       const parts = mesh.userData.parts as HumanoidParts | undefined;
       if (parts) {
@@ -2147,31 +2414,79 @@ function handleEvents(events: ServerSnapshot['events']) {
       if (mode === 'ffa') {
         showFfaStatsModal(event.winners);
       } else {
-        matchOverTimeout = window.setTimeout(() => {
-          if (!inEditor) {
-            leaveMatch();
-          }
-        }, 3000);
+        showTeamMatchOverModal();
       }
     }
   }
 }
 
-function createPlayerMesh(side: Side): THREE.Group {
+function hashPlayerId(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+const FFA_PLAYER_PALETTES: Array<{ body: number; limb: number; head: number }> = [
+  { body: 0xff6b35, limb: 0xc94b1d, head: 0xf2c9a0 },
+  { body: 0x2dd4bf, limb: 0x149c8d, head: 0xf2c9a0 },
+  { body: 0xff4d8d, limb: 0xc72d64, head: 0xf2c9a0 },
+  { body: 0x8b5cf6, limb: 0x6237c8, head: 0xf2c9a0 },
+  { body: 0xfacc15, limb: 0xd4a40a, head: 0xf2c9a0 },
+  { body: 0x38bdf8, limb: 0x1d7eb0, head: 0xf2c9a0 },
+  { body: 0xa3e635, limb: 0x6ca61a, head: 0xf2c9a0 },
+  { body: 0xfb7185, limb: 0xc94761, head: 0xf2c9a0 },
+];
+
+const ffaPaletteByPlayerId = new Map<string, { body: number; limb: number; head: number }>();
+
+function updateFfaPaletteAssignments(players: PlayerSnapshot[]) {
+  ffaPaletteByPlayerId.clear();
+  if (latestSnapshot?.round.mode !== 'ffa') {
+    return;
+  }
+  const sortedPlayers = [...players].sort((a, b) => hashPlayerId(a.id) - hashPlayerId(b.id) || a.id.localeCompare(b.id));
+  sortedPlayers.forEach((player, index) => {
+    const palette = FFA_PLAYER_PALETTES[index % FFA_PLAYER_PALETTES.length];
+    ffaPaletteByPlayerId.set(player.id, palette);
+  });
+}
+
+function getPlayerPalette(player: PlayerSnapshot): { body: number; limb: number; head: number } {
+  if (latestSnapshot?.round.mode === 'ffa') {
+    return ffaPaletteByPlayerId.get(player.id) ?? FFA_PLAYER_PALETTES[hashPlayerId(player.id) % FFA_PLAYER_PALETTES.length];
+  }
+  return {
+    body: player.side === 'T' ? 0xd2a15b : 0x6aa6ff,
+    limb: player.side === 'T' ? 0xa0773b : 0x3f6fbf,
+    head: 0xf2c9a0,
+  };
+}
+
+function applyPlayerPalette(mesh: THREE.Group, player: PlayerSnapshot) {
+  const materials = mesh.userData.materials as HumanoidMaterials | undefined;
+  if (!materials) {
+    return;
+  }
+  const palette = getPlayerPalette(player);
+  materials.bodyMat.color.setHex(palette.body);
+  materials.limbMat.color.setHex(palette.limb);
+  materials.headMat.color.setHex(palette.head);
+}
+
+function createPlayerMesh(player: PlayerSnapshot): THREE.Group {
   const group = new THREE.Group();
   const SHOW_HITBOX = false;
-
-  const bodyColor = side === 'T' ? 0xd2a15b : 0x6aa6ff;
-  const limbColor = side === 'T' ? 0xa0773b : 0x3f6fbf;
-  const headColor = 0xf2c9a0;
+  const palette = getPlayerPalette(player);
 
   const baseGeo = new THREE.SphereGeometry(1, 18, 12);
   const limbGeo = new THREE.SphereGeometry(1, 14, 10);
   const headGeo = new THREE.BoxGeometry(0.38, 0.42, 0.38);
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.7, metalness: 0.1 });
-  const limbMat = new THREE.MeshStandardMaterial({ color: limbColor, roughness: 0.8, metalness: 0.05 });
-  const headMat = new THREE.MeshStandardMaterial({ color: headColor, roughness: 0.6, metalness: 0.05 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: palette.body, roughness: 0.7, metalness: 0.1 });
+  const limbMat = new THREE.MeshStandardMaterial({ color: palette.limb, roughness: 0.8, metalness: 0.05 });
+  const headMat = new THREE.MeshStandardMaterial({ color: palette.head, roughness: 0.6, metalness: 0.05 });
 
   const torso = new THREE.Mesh(baseGeo, bodyMat);
   torso.scale.set(0.35, 0.5, 0.22);
@@ -2298,6 +2613,7 @@ function createPlayerMesh(side: Side): THREE.Group {
     weaponType: null,
     weaponRequestId: 0,
   } satisfies HumanoidParts;
+  group.userData.materials = { bodyMat, limbMat, headMat } satisfies HumanoidMaterials;
 
   return group;
 }
