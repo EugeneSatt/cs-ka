@@ -19,6 +19,7 @@ import {
   CROUCH_EYE_HEIGHT,
   EYE_HEIGHT,
   FREEZE_TIME,
+  GRENADE_CONFIG,
   PLAYER_RADIUS,
   PLAYER_HEIGHT,
   ROUND_TIME,
@@ -54,6 +55,7 @@ const facePreview = document.getElementById('face-preview') as HTMLImageElement 
 const roomList = document.getElementById('room-list') as HTMLDivElement;
 const roomConnection = document.getElementById('room-connection') as HTMLSpanElement;
 
+const hud = document.getElementById('hud') as HTMLDivElement;
 const hudRound = document.getElementById('round') as HTMLDivElement;
 const hudTimer = document.getElementById('timer') as HTMLDivElement;
 const hudScore = document.getElementById('score') as HTMLDivElement;
@@ -61,7 +63,8 @@ const hudHp = document.getElementById('hp') as HTMLDivElement;
 const hudAmmo = document.getElementById('ammo') as HTMLDivElement;
 const hudGrenades = document.getElementById('grenades') as HTMLDivElement;
 const hudStatus = document.getElementById('status') as HTMLDivElement;
-const hudKda = document.getElementById('kda') as HTMLDivElement;
+const hudKills = document.getElementById('kills') as HTMLDivElement;
+const hudDeaths = document.getElementById('deaths') as HTMLDivElement;
 const hudFps = document.getElementById('fps') as HTMLDivElement | null;
 const buyMenu = document.getElementById('buy-menu') as HTMLDivElement;
 const crosshair = document.getElementById('crosshair') as HTMLDivElement;
@@ -159,6 +162,7 @@ let scopeHeld = false;
 let scoped = false;
 let matchOverTimeout: number | null = null;
 let roundModalTimeout: number | null = null;
+let roundModalCloseAction: 'dismiss' | 'exit' = 'dismiss';
 let faceDataUrl: string | null = null;
 const playerFaces = new Map<string, string | null>();
 const faceTextureCache = new Map<string, THREE.Texture>();
@@ -263,6 +267,8 @@ let reconnectTimer: number | null = null;
 let roomSummaries: RoomSummary[] = [];
 let reconnectingRoomId: string | null = null;
 let ignoreNextSocketClose = false;
+let sceneReadyForMatch = false;
+let activeTabCount = 1;
 
 const pendingInputs: InputPayload[] = [];
 let inputSeq = 0;
@@ -323,9 +329,116 @@ type EditorSession = {
   pitch: number;
 };
 
+type WelcomePayload = Extract<ServerMessage, { type: 'welcome' }>;
+
 const EDITOR_STORAGE_KEY = 'csvert-editor-session';
 const NAME_STORAGE_KEY = 'csvert-player-name';
 const FACE_STORAGE_KEY = 'csvert-player-face';
+const ACTIVE_ROOM_STORAGE_KEY = 'csvert-active-room';
+const TAB_CHANNEL_NAME = 'csvert-tabs';
+const TAB_HEARTBEAT_MS = 2000;
+const TAB_STALE_MS = 7000;
+const LIGHT_LOAD_TAB_COUNT = 4;
+const tabId = `tab-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+const knownTabs = new Map<string, number>();
+let pendingWelcomeMessage: WelcomePayload | null = null;
+let tabChannel: BroadcastChannel | null = null;
+let tabHeartbeat: number | null = null;
+
+function saveActiveRoomSession(roomId: string) {
+  try {
+    sessionStorage.setItem(ACTIVE_ROOM_STORAGE_KEY, roomId);
+  } catch {
+    // ignore
+  }
+}
+
+function loadActiveRoomSession(): string | null {
+  try {
+    return sessionStorage.getItem(ACTIVE_ROOM_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function clearActiveRoomSession() {
+  try {
+    sessionStorage.removeItem(ACTIVE_ROOM_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+let pendingResumeRoomId: string | null = loadActiveRoomSession();
+
+function pruneKnownTabs(now = Date.now()) {
+  for (const [id, seenAt] of knownTabs.entries()) {
+    if (now - seenAt > TAB_STALE_MS) {
+      knownTabs.delete(id);
+    }
+  }
+}
+
+function updateActiveTabCount(now = Date.now()) {
+  knownTabs.set(tabId, now);
+  pruneKnownTabs(now);
+  activeTabCount = Math.max(1, knownTabs.size);
+}
+
+function broadcastTabPresence(type: 'hello' | 'ping' | 'bye') {
+  if (!tabChannel) {
+    return;
+  }
+  const now = Date.now();
+  if (type !== 'bye') {
+    updateActiveTabCount(now);
+  }
+  tabChannel.postMessage({ type, id: tabId, at: now });
+}
+
+function shouldUseLightLoadMode(): boolean {
+  return activeTabCount >= LIGHT_LOAD_TAB_COUNT;
+}
+
+function shouldDeferSceneInit(): boolean {
+  return document.visibilityState !== 'visible';
+}
+
+function setupTabPresence() {
+  if (typeof BroadcastChannel === 'undefined') {
+    return;
+  }
+  tabChannel = new BroadcastChannel(TAB_CHANNEL_NAME);
+  knownTabs.set(tabId, Date.now());
+  updateActiveTabCount();
+  tabChannel.addEventListener('message', (event) => {
+    const message = event.data as { type?: string; id?: string; at?: number } | null;
+    if (!message?.id || message.id === tabId) {
+      return;
+    }
+    if (message.type === 'bye') {
+      knownTabs.delete(message.id);
+      updateActiveTabCount();
+      return;
+    }
+    knownTabs.set(message.id, message.at ?? Date.now());
+    updateActiveTabCount();
+    if (message.type === 'hello') {
+      broadcastTabPresence('ping');
+    }
+  });
+  broadcastTabPresence('hello');
+  tabHeartbeat = window.setInterval(() => {
+    broadcastTabPresence('ping');
+  }, TAB_HEARTBEAT_MS);
+  window.addEventListener('beforeunload', () => {
+    if (tabHeartbeat !== null) {
+      window.clearInterval(tabHeartbeat);
+      tabHeartbeat = null;
+    }
+    broadcastTabPresence('bye');
+  });
+}
 
 function coerceMapData(data: unknown): MapData {
   return data as MapData;
@@ -333,9 +446,19 @@ function coerceMapData(data: unknown): MapData {
 
 let currentEditorMap: MapData = coerceMapData(editorMap);
 let lastEditorPersist = 0;
+let hudUiHidden = false;
 
 type Tracer = { mesh: THREE.Line; expire: number };
 const tracers: Tracer[] = [];
+type ExplosionEffect = {
+  group: THREE.Group;
+  flash: THREE.Mesh;
+  ring: THREE.Mesh;
+  smoke: THREE.Mesh;
+  start: number;
+  expire: number;
+};
+const explosionEffects: ExplosionEffect[] = [];
 type HumanoidParts = {
   head: THREE.Group;
   headMesh: THREE.Mesh;
@@ -575,6 +698,14 @@ function ensureSocket() {
       }
       renderRoomList();
       updateJoinButtonState();
+      if (pendingResumeRoomId && !inMatch && !joiningRoomId) {
+        const roomId = pendingResumeRoomId;
+        pendingResumeRoomId = null;
+        selectedRoomId = roomId;
+        reconnectingRoomId = roomId;
+        renderRoomList();
+        sendJoinRequest(roomId);
+      }
       return;
     }
     if (msg.type === 'lobby_error') {
@@ -591,39 +722,21 @@ function ensureSocket() {
     }
     if (msg.type === 'welcome') {
       currentRoomId = msg.roomId;
+      saveActiveRoomSession(msg.roomId);
       reconnectingRoomId = null;
       joiningRoomId = null;
       updateJoinButtonState();
       const token = ++mapLoadToken;
       clientId = msg.id;
       mapData = msg.map;
-      hudStatus.textContent = 'Loading map...';
-      Promise.all([preloadMapAssets(msg.map), preloadPlayerFaceTextures(msg.playersMeta)])
-        .catch((err) => {
-          console.warn('Map preload warning:', err);
-        })
-        .then(async () => {
-          if (mapLoadToken !== token || !mapData) {
-            return;
-          }
-          hudStatus.textContent = 'Building map...';
-          const group = await buildMap(msg.map);
-          if (mapLoadToken !== token || !mapData || !group) {
-            return;
-          }
-          hudStatus.textContent = 'Optimizing map...';
-          await warmupMapScene(msg.map, group);
-          if (mapLoadToken !== token || !mapData || mapGroup !== group) {
-            return;
-          }
-          inMatch = true;
-          menu.style.display = 'none';
-          if (msg.playersMeta) {
-            for (const meta of msg.playersMeta) {
-              playerFaces.set(meta.id, meta.face ?? null);
-            }
-          }
-        });
+      if (shouldDeferSceneInit()) {
+        pendingWelcomeMessage = msg;
+        sceneReadyForMatch = false;
+        inMatch = false;
+        hudStatus.textContent = 'Room connected. Open this tab to load 3D.';
+        return;
+      }
+      void startMatchSceneLoad(msg, token);
       return;
     }
     if (msg.type === 'snapshot') {
@@ -686,6 +799,10 @@ exitCancelButton.addEventListener('click', () => {
 roundModalCloseButton.addEventListener('click', (event) => {
   event.preventDefault();
   event.stopPropagation();
+  if (roundModalCloseAction === 'exit') {
+    leaveMatch();
+    return;
+  }
   closeRoundModal();
 });
 
@@ -696,9 +813,7 @@ exitModal.addEventListener('click', (event) => {
 });
 
 roundModal.addEventListener('click', (event) => {
-  if (event.target === roundModal) {
-    closeRoundModal();
-  }
+  event.stopPropagation();
 });
 
 function refreshModeUI() {
@@ -805,6 +920,18 @@ document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === renderer.domElement;
 });
 
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    broadcastTabPresence('ping');
+    if (pendingWelcomeMessage && !inEditor) {
+      const token = ++mapLoadToken;
+      void startMatchSceneLoad(pendingWelcomeMessage, token);
+    }
+    return;
+  }
+  broadcastTabPresence('ping');
+});
+
 document.addEventListener('mousemove', (event) => {
   if (!pointerLocked) {
     return;
@@ -844,7 +971,50 @@ document.addEventListener('contextmenu', (event) => {
   event.preventDefault();
 });
 
+function shouldBlockBrowserHotkeys(): boolean {
+  return inEditor || inMatch || Boolean(currentRoomId);
+}
+
+function isBlockedBrowserHotkey(event: KeyboardEvent): boolean {
+  if (event.code === 'F5') {
+    return true;
+  }
+  if (event.altKey && (event.code === 'ArrowLeft' || event.code === 'ArrowRight')) {
+    return true;
+  }
+  if (event.ctrlKey || event.metaKey) {
+    return true;
+  }
+  return false;
+}
+
+function applyHudVisibility() {
+  hud.classList.toggle('hud-hidden', hudUiHidden);
+}
+
+function blockBrowserHotkeyDefault(event: KeyboardEvent) {
+  if (!shouldBlockBrowserHotkeys() || !isBlockedBrowserHotkey(event)) {
+    return;
+  }
+  event.preventDefault();
+}
+
+window.addEventListener('keydown', blockBrowserHotkeyDefault, { capture: true });
+window.addEventListener('keyup', blockBrowserHotkeyDefault, { capture: true });
+window.addEventListener('beforeunload', (event) => {
+  if (!shouldBlockBrowserHotkeys()) {
+    return;
+  }
+  event.preventDefault();
+  event.returnValue = '';
+});
+
 document.addEventListener('keydown', (event) => {
+  if (shouldBlockBrowserHotkeys() && isBlockedBrowserHotkey(event)) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   if (event.code === 'Escape') {
     if (inEditor) {
       exitEditor();
@@ -855,7 +1025,6 @@ document.addEventListener('keydown', (event) => {
       return;
     }
     if (isRoundModalOpen()) {
-      closeRoundModal();
       return;
     }
     if (inMatch || socket) {
@@ -866,6 +1035,14 @@ document.addEventListener('keydown', (event) => {
   }
 
   if (isAnyModalOpen()) {
+    return;
+  }
+
+  if (event.code === 'KeyP') {
+    if (!inEditor && inMatch) {
+      hudUiHidden = !hudUiHidden;
+      applyHudVisibility();
+    }
     return;
   }
 
@@ -924,8 +1101,11 @@ function resetHud() {
   hudHp.textContent = 'HP 100';
   hudAmmo.textContent = 'Ammo 0';
   hudGrenades.textContent = 'Grenade 0';
-  if (hudKda) {
-    hudKda.textContent = 'K/D 0/0';
+  if (hudKills) {
+    hudKills.textContent = 'Kills 0';
+  }
+  if (hudDeaths) {
+    hudDeaths.textContent = 'Deaths 0';
   }
   if (hudFps) {
     hudFps.textContent = 'FPS 0';
@@ -983,13 +1163,19 @@ function setRoundModalTone(side: Side | null) {
 function closeRoundModal() {
   roundModal.classList.add('hidden');
   roundModal.classList.remove('team-t', 'team-ct');
+  roundModalCloseAction = 'dismiss';
   if (roundModalTimeout !== null) {
     window.clearTimeout(roundModalTimeout);
     roundModalTimeout = null;
   }
 }
 
-function showRoundModal(title: string, side: Side | null, autoHideMs?: number) {
+function showRoundModal(
+  title: string,
+  side: Side | null,
+  autoHideMs?: number,
+  closeAction: 'dismiss' | 'exit' = 'dismiss'
+) {
   document.exitPointerLock();
   pressedKeys.clear();
   inputState.forward = 0;
@@ -999,6 +1185,7 @@ function showRoundModal(title: string, side: Side | null, autoHideMs?: number) {
   inputState.shoot = false;
   roundModalTitle.textContent = title;
   setRoundModalTone(side);
+  roundModalCloseAction = closeAction;
   roundModal.classList.remove('hidden');
   if (roundModalTimeout !== null) {
     window.clearTimeout(roundModalTimeout);
@@ -1078,7 +1265,7 @@ function showFfaStatsModal(winners: Array<{ id: string; name: string; kills: num
     row.appendChild(deaths);
     roundModalBody.appendChild(row);
   }
-  showRoundModal('FFA Match Stats', toneSide);
+  showRoundModal('FFA Match Stats', toneSide, undefined, 'exit');
 }
 
 function showTeamMatchOverModal() {
@@ -1094,7 +1281,7 @@ function showTeamMatchOverModal() {
       title = toneSide === 'T' ? 'Terrorists Win Match' : 'Counter-Terrorists Win Match';
     }
   }
-  showRoundModal(title, toneSide);
+  showRoundModal(title, toneSide, undefined, 'exit');
 }
 
 function clearMeshes() {
@@ -1108,6 +1295,15 @@ function clearMeshes() {
     scene.remove(mesh);
   }
   grenadeMeshes.clear();
+
+  for (const tracer of tracers) {
+    scene.remove(tracer.mesh);
+    tracer.mesh.geometry.dispose();
+    (tracer.mesh.material as THREE.Material).dispose();
+  }
+  tracers.length = 0;
+
+  clearExplosionEffects();
 
   if (mapGroup) {
     scene.remove(mapGroup);
@@ -1294,6 +1490,51 @@ function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
+}
+
+async function startMatchSceneLoad(msg: WelcomePayload, token: number): Promise<void> {
+  const lightLoad = shouldUseLightLoadMode();
+  sceneReadyForMatch = false;
+  pendingWelcomeMessage = null;
+  hudStatus.textContent = lightLoad ? 'Loading room...' : 'Loading map...';
+
+  const preloadTask = lightLoad
+    ? preloadPlayerFaceTextures(msg.playersMeta)
+    : Promise.all([preloadMapAssets(msg.map), preloadPlayerFaceTextures(msg.playersMeta)]).then(() => undefined);
+
+  try {
+    await preloadTask;
+  } catch (err) {
+    console.warn('Map preload warning:', err);
+  }
+  if (mapLoadToken !== token || !mapData) {
+    return;
+  }
+
+  hudStatus.textContent = 'Building map...';
+  const group = await buildMap(msg.map);
+  if (mapLoadToken !== token || !mapData || !group) {
+    return;
+  }
+
+  if (!lightLoad) {
+    hudStatus.textContent = 'Optimizing map...';
+    await warmupMapScene(msg.map, group);
+    if (mapLoadToken !== token || !mapData || mapGroup !== group) {
+      return;
+    }
+  } else {
+    await nextFrame();
+  }
+
+  sceneReadyForMatch = true;
+  inMatch = true;
+  menu.style.display = 'none';
+  if (msg.playersMeta) {
+    for (const meta of msg.playersMeta) {
+      playerFaces.set(meta.id, meta.face ?? null);
+    }
+  }
 }
 
 function collectWarmupSpawnPoints(map: MapData): THREE.Vector3[] {
@@ -1826,6 +2067,8 @@ function resetLocalState() {
   mapData = null;
   currentRoomId = null;
   latestSnapshot = null;
+  pendingWelcomeMessage = null;
+  sceneReadyForMatch = false;
   serverTimeOffset = 0;
   snapshotBuffer.length = 0;
   pendingInputs.length = 0;
@@ -1868,10 +2111,14 @@ function resetLocalState() {
   updateScope(true);
 }
 
-function returnToLobby(status: string) {
+function returnToLobby(status: string, options?: { preserveRoomSession?: boolean }) {
   inMatch = false;
   joiningRoomId = null;
   reconnectingRoomId = null;
+  pendingResumeRoomId = null;
+  if (!options?.preserveRoomSession) {
+    clearActiveRoomSession();
+  }
   resetPlayState();
   resetLocalState();
   resetHud();
@@ -1912,6 +2159,12 @@ function leaveMatch() {
 
 function enterEditor(saved?: EditorSession) {
   inEditor = true;
+  inMatch = false;
+  currentRoomId = null;
+  joiningRoomId = null;
+  reconnectingRoomId = null;
+  pendingResumeRoomId = null;
+  clearActiveRoomSession();
   clearReconnect();
   if (socket) {
     ignoreNextSocketClose = true;
@@ -1968,6 +2221,7 @@ refreshModeUI();
 restoreEditorSession();
 renderRoomList();
 updateJoinButtonState();
+setupTabPresence();
 if (!inEditor) {
   ensureSocket();
 }
@@ -2249,6 +2503,11 @@ function handleSnapshot(snapshot: ServerSnapshot) {
       localState.onGround = moved.onGround;
     }
   }
+  if (!sceneReadyForMatch && !inEditor) {
+    updateHud(snapshot);
+    return;
+  }
+
   updateSpectateTarget(playerMap);
 
   updatePlayerMeshes(snapshot.players);
@@ -2355,7 +2614,8 @@ function updateHud(snapshot: ServerSnapshot) {
   const ammoValue = localState.weapon === 'pistol' ? localState.ammo.pistol : localState.ammo.primary;
   hudAmmo.textContent = `Ammo ${ammoValue}`;
   hudGrenades.textContent = `Grenade ${localState.grenades}`;
-  hudKda.textContent = `K/D ${localState.kills}/${localState.deaths}`;
+  hudKills.textContent = `Kills ${localState.kills}`;
+  hudDeaths.textContent = `Deaths ${localState.deaths}`;
   if (phase === 'post' && snapshot.round.postReason === 'draw') {
     hudStatus.textContent = 'Draw';
   }
@@ -2396,6 +2656,9 @@ function handleEvents(events: ServerSnapshot['events']) {
     }
     if (event.type === 'shot') {
       spawnTracer(event.origin, event.dir, event.distance);
+    }
+    if (event.type === 'grenade_explode') {
+      spawnGrenadeExplosion(event.pos);
     }
     if (event.type === 'match_over') {
       if (event.winners.length === 1) {
@@ -2632,6 +2895,75 @@ function spawnTracer(origin: Vec3, dir: Vec3, distance: number) {
   tracers.push({ mesh: line, expire: performance.now() + 200 });
 }
 
+function disposeExplosionEffect(effect: ExplosionEffect) {
+  scene.remove(effect.group);
+  for (const mesh of [effect.flash, effect.ring, effect.smoke]) {
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
+  }
+}
+
+function clearExplosionEffects() {
+  for (const effect of explosionEffects) {
+    disposeExplosionEffect(effect);
+  }
+  explosionEffects.length = 0;
+}
+
+function spawnGrenadeExplosion(pos: Vec3) {
+  const now = performance.now();
+  const group = new THREE.Group();
+  group.position.set(pos[0], pos[1] + 0.1, pos[2]);
+
+  const flash = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 14, 12),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd27a,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  group.add(flash);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.25, 0.55, 28),
+    new THREE.MeshBasicMaterial({
+      color: 0xff8d3a,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  group.add(ring);
+
+  const smoke = new THREE.Mesh(
+    new THREE.SphereGeometry(0.45, 12, 10),
+    new THREE.MeshBasicMaterial({
+      color: 0x585858,
+      transparent: true,
+      opacity: 0.32,
+      depthWrite: false,
+    })
+  );
+  smoke.position.y = 0.18;
+  group.add(smoke);
+
+  scene.add(group);
+  explosionEffects.push({
+    group,
+    flash,
+    ring,
+    smoke,
+    start: now,
+    expire: now + 550,
+  });
+}
+
 function updateTracers(now: number) {
   for (let i = tracers.length - 1; i >= 0; i -= 1) {
     const tracer = tracers[i];
@@ -2640,6 +2972,29 @@ function updateTracers(now: number) {
       tracer.mesh.geometry.dispose();
       (tracer.mesh.material as THREE.Material).dispose();
       tracers.splice(i, 1);
+    }
+  }
+}
+
+function updateExplosionEffects(now: number) {
+  for (let i = explosionEffects.length - 1; i >= 0; i -= 1) {
+    const effect = explosionEffects[i];
+    const progress = clamp((now - effect.start) / Math.max(1, effect.expire - effect.start), 0, 1);
+    effect.flash.scale.setScalar(1 + progress * 5);
+    effect.ring.scale.setScalar(1 + progress * 6.5);
+    effect.smoke.scale.setScalar(1 + progress * 3.5);
+    effect.smoke.position.y = 0.18 + progress * 1.2;
+
+    const flashMaterial = effect.flash.material as THREE.MeshBasicMaterial;
+    const ringMaterial = effect.ring.material as THREE.MeshBasicMaterial;
+    const smokeMaterial = effect.smoke.material as THREE.MeshBasicMaterial;
+    flashMaterial.opacity = 0.95 * (1 - progress) * (1 - progress);
+    ringMaterial.opacity = 0.75 * (1 - progress);
+    smokeMaterial.opacity = 0.32 * (1 - progress * 0.8);
+
+    if (now >= effect.expire) {
+      disposeExplosionEffect(effect);
+      explosionEffects.splice(i, 1);
     }
   }
 }
@@ -2978,6 +3333,7 @@ function render() {
 
     updateRemotePlayers(renderTime);
     updateTracers(now);
+    updateExplosionEffects(now);
     camera.layers.set(WORLD_LAYER);
     renderer.render(scene, camera);
     if (showWeapon) {

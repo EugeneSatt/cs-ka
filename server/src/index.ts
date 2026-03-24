@@ -804,27 +804,59 @@ function createRoom(id: string, name: string): RoomController {
     return false;
   }
 
+  function grenadeOnGround(pos: Vec3): boolean {
+    return grenadeCollides([pos[0], pos[1] - 0.06, pos[2]]);
+  }
+
   function moveGrenadeAxis(pos: Vec3, vel: Vec3, axis: 0 | 1 | 2, dt: number): Vec3 {
     const next: Vec3 = [pos[0], pos[1], pos[2]];
     next[axis] += vel[axis] * dt;
     if (!grenadeCollides(next)) {
       return next;
     }
-    vel[axis] = 0;
+    vel[axis] = -vel[axis] * GRENADE_CONFIG.bounce;
+    if (axis === 1) {
+      vel[0] *= GRENADE_CONFIG.floorBounceCarry;
+      vel[2] *= GRENADE_CONFIG.floorBounceCarry;
+      if (Math.abs(vel[1]) < GRENADE_CONFIG.minBounceSpeed) {
+        vel[1] = 0;
+        vel[0] = 0;
+        vel[2] = 0;
+      }
+      if (Math.hypot(vel[0], vel[2]) < GRENADE_CONFIG.stopSpeed) {
+        vel[0] = 0;
+        vel[2] = 0;
+      }
+    } else if (Math.abs(vel[axis]) < GRENADE_CONFIG.stopSpeed) {
+      vel[axis] = 0;
+    }
     return pos;
   }
 
   function moveGrenade(pos: Vec3, vel: Vec3, dt: number): { pos: Vec3; vel: Vec3 } {
     let next: Vec3 = [pos[0], pos[1], pos[2]];
-    next = moveGrenadeAxis(next, vel, 0, dt);
-    next = moveGrenadeAxis(next, vel, 1, dt);
-    next = moveGrenadeAxis(next, vel, 2, dt);
+    const maxSpeed = Math.max(Math.abs(vel[0]), Math.abs(vel[1]), Math.abs(vel[2]));
+    const steps = Math.max(1, Math.min(6, Math.ceil((maxSpeed * dt) / 0.2)));
+    const stepDt = dt / steps;
+    for (let i = 0; i < steps; i += 1) {
+      next = moveGrenadeAxis(next, vel, 0, stepDt);
+      next = moveGrenadeAxis(next, vel, 1, stepDt);
+      next = moveGrenadeAxis(next, vel, 2, stepDt);
+    }
     return { pos: next, vel };
   }
 
   function playerSideById(playerId: string): Side {
     const player = players.get(playerId);
     return player ? playerSide(player) : 'T';
+  }
+
+  function grenadeDamageDistance(player: Player, pos: Vec3): number {
+    const height = player.crouching ? PLAYER_HEIGHT * 0.6 : PLAYER_HEIGHT;
+    const closestX = clamp(pos[0], player.pos[0] - PLAYER_RADIUS, player.pos[0] + PLAYER_RADIUS);
+    const closestY = clamp(pos[1], player.pos[1], player.pos[1] + height);
+    const closestZ = clamp(pos[2], player.pos[2] - PLAYER_RADIUS, player.pos[2] + PLAYER_RADIUS);
+    return Math.hypot(closestX - pos[0], closestY - pos[1], closestZ - pos[2]);
   }
 
   function applyDamage(target: Player, attackerId: string, damage: number, weapon: WeaponSlot | WeaponType) {
@@ -859,18 +891,17 @@ function createRoom(id: string, name: string): RoomController {
   function explodeGrenade(grenade: Grenade) {
     pendingEvents.push({ type: 'grenade_explode', pos: grenade.pos, ownerId: grenade.ownerId });
     for (const player of players.values()) {
-      if (!player.alive || player.id === grenade.ownerId) {
+      if (!player.alive) {
         continue;
       }
-      if (gameMode === 'team' && playerSide(player) === playerSideById(grenade.ownerId)) {
+      if (gameMode === 'team' && player.id !== grenade.ownerId && playerSide(player) === playerSideById(grenade.ownerId)) {
         continue;
       }
-      const center: Vec3 = [player.pos[0], player.pos[1] + PLAYER_HEIGHT * 0.5, player.pos[2]];
-      const dist = Math.hypot(center[0] - grenade.pos[0], center[1] - grenade.pos[1], center[2] - grenade.pos[2]);
+      const dist = grenadeDamageDistance(player, grenade.pos);
       if (dist > GRENADE_CONFIG.radius) {
         continue;
       }
-      const damage = Math.max(0, Math.floor(GRENADE_CONFIG.maxDamage * (1 - dist / GRENADE_CONFIG.radius)));
+      const damage = Math.max(0, Math.ceil(GRENADE_CONFIG.maxDamage * (1 - dist / GRENADE_CONFIG.radius)));
       if (damage > 0) {
         applyDamage(player, grenade.ownerId, damage, 'grenade');
       }
@@ -880,7 +911,12 @@ function createRoom(id: string, name: string): RoomController {
   function updateGrenades(dt: number) {
     for (let i = grenades.length - 1; i >= 0; i -= 1) {
       const grenade = grenades[i];
-      grenade.vel[1] += dt * -20;
+      grenade.vel[1] -= dt * GRENADE_CONFIG.gravity;
+      if (grenadeOnGround(grenade.pos) && Math.abs(grenade.vel[1]) < GRENADE_CONFIG.minBounceSpeed) {
+        grenade.vel[0] = 0;
+        grenade.vel[1] = 0;
+        grenade.vel[2] = 0;
+      }
       const moved = moveGrenade(grenade.pos, grenade.vel, dt);
       grenade.pos = moved.pos;
       grenade.vel = moved.vel;
@@ -917,12 +953,17 @@ function createRoom(id: string, name: string): RoomController {
     if (player.grenades <= 0) {
       return;
     }
-    const origin: Vec3 = [player.pos[0], player.pos[1] + EYE_HEIGHT, player.pos[2]];
+    const viewHeight = player.crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
     const dir = directionFromYawPitch(player.yaw, player.pitch);
+    const origin: Vec3 = [
+      player.pos[0] + dir[0] * 0.45,
+      player.pos[1] + viewHeight - 0.08 + dir[1] * 0.2,
+      player.pos[2] + dir[2] * 0.45,
+    ];
     const vel: Vec3 = [
-      dir[0] * GRENADE_CONFIG.speed,
+      dir[0] * GRENADE_CONFIG.speed + player.vel[0] * GRENADE_CONFIG.carryFactor,
       dir[1] * GRENADE_CONFIG.speed + GRENADE_CONFIG.upBoost,
-      dir[2] * GRENADE_CONFIG.speed,
+      dir[2] * GRENADE_CONFIG.speed + player.vel[2] * GRENADE_CONFIG.carryFactor,
     ];
     grenades.push({
       id: `g${nextGrenadeId++}`,

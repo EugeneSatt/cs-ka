@@ -74,6 +74,15 @@ export function movePlayer(
   const baseGround = state.onGround ? groundHeightAt(pos, map, pos[1]) : null;
   const moved = moveWithCollisions(pos, vel, dt, map, state.onGround, move.jump, baseGround);
   moved.pos = resolvePenetration(moved.pos, map);
+  const snappedGround =
+    !move.jump && moved.vel[1] <= 0 ? groundHeightAt(moved.pos, map, Math.max(pos[1], moved.pos[1])) : null;
+  if (snappedGround !== null) {
+    const delta = snappedGround - moved.pos[1];
+    if (delta >= -STEP_HEIGHT - 0.08 && delta <= STEP_CHECK_MAX_RISE) {
+      moved.pos[1] = snappedGround;
+    }
+  }
+
   const onGround = isOnGround(moved.pos, map);
   if (onGround && moved.vel[1] < 0) {
     moved.vel[1] = 0;
@@ -178,14 +187,34 @@ function moveAxis(
     return next;
   }
 
-  if (STEP_HEIGHT > 0 && axis !== 1 && vel[axis] !== 0) {
+  if (STEP_HEIGHT > 0 && axis !== 1 && vel[axis] !== 0 && onGround && !jumping) {
+    const nextGround = groundHeightAt(next, map, pos[1]);
+    if (nextGround !== null) {
+      const base = baseGround ?? pos[1];
+      const rise = nextGround - base;
+      if (rise > STEP_CHECK_EPS && rise <= STEP_CHECK_MAX_RISE) {
+        const stepped: Vec3 = [next[0], nextGround, next[2]];
+        if (!collidesAt(stepped, map)) {
+          return stepped;
+        }
+      }
+    }
+
     const stepUpPos: Vec3 = [pos[0], pos[1] + STEP_HEIGHT, pos[2]];
     const stepNext: Vec3 = [next[0], next[1] + STEP_HEIGHT, next[2]];
     if (!collidesAt(stepUpPos, map) && !collidesAt(stepNext, map)) {
-      const nextGround = onGround && baseGround !== null ? groundHeightAt(stepNext, map, baseGround) : null;
-      if (baseGround !== null && nextGround !== null && nextGround - baseGround > STEP_CHECK_MAX_RISE) {
-        vel[axis] = 0;
-        return pos;
+      const stepGround = groundHeightAt(stepNext, map, pos[1] + STEP_HEIGHT);
+      if (stepGround !== null) {
+        const base = baseGround ?? pos[1];
+        const rise = stepGround - base;
+        if (rise > STEP_CHECK_MAX_RISE) {
+          vel[axis] = 0;
+          return pos;
+        }
+        const stepped: Vec3 = [stepNext[0], stepGround, stepNext[2]];
+        if (!collidesAt(stepped, map)) {
+          return stepped;
+        }
       }
       return stepNext;
     }

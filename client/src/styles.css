@@ -25,25 +25,32 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
   padding: 16px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
-#top {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+#hud.hud-hidden .hud-column,
+#hud.hud-hidden #buy-menu {
+  display: none !important;
+}
+
+.hud-column {
+  position: absolute;
+  top: 16px;
+  display: grid;
+  gap: 8px;
   font-weight: 600;
 }
 
-#bottom {
-  display: flex;
-  gap: 16px;
-  font-weight: 600;
+.hud-left {
+  left: 16px;
+  justify-items: start;
+}
+
+.hud-right {
+  right: 16px;
+  justify-items: end;
 }
 
 #round,
@@ -52,11 +59,15 @@ body {
 #hp,
 #ammo,
 #grenades,
+#kills,
+#deaths,
+#status,
 #fps {
   background: var(--panel);
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
+  min-width: 168px;
 }
 
 #fps {
@@ -64,7 +75,6 @@ body {
 }
 
 #status {
-  margin-top: 8px;
   font-size: 14px;
   color: var(--accent);
 }
@@ -556,10 +566,29 @@ canvas {
 }
 
 @media (max-width: 700px) {
-  #top,
-  #bottom {
-    flex-direction: column;
-    align-items: flex-start;
+  .hud-column {
+    top: 12px;
+  }
+
+  .hud-left {
+    left: 12px;
+  }
+
+  .hud-right {
+    right: 12px;
+  }
+
+  #round,
+  #timer,
+  #score,
+  #hp,
+  #ammo,
+  #grenades,
+  #kills,
+  #deaths,
+  #status,
+  #fps {
+    min-width: 138px;
   }
 
   .overlay {

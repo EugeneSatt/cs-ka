@@ -70,8 +70,14 @@ export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', We
 
 export const GRENADE_CONFIG = {
   fuseTime: 2.2,
-  speed: 16,
-  upBoost: 2.5,
+  speed: 21,
+  upBoost: 4.2,
+  carryFactor: 0.4,
+  gravity: 26,
+  bounce: 0.52,
+  floorBounceCarry: 0.18,
+  minBounceSpeed: 1.4,
+  stopSpeed: 0.6,
   radius: 5,
-  maxDamage: 80,
+  maxDamage: 110,
 };

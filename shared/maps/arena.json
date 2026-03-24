@@ -132,14 +132,66 @@
 
 
 
+    {"min": [-22, 1.8, -10], "max": [-21.75, 3.2, -9.8], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "угол снабжения"},
+      {"min": [-22, 1.8, -7], "max": [-21.75, 3.2, -6.8], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall" , "id": "снабжение палки"},
+      {"min": [-22, 1.8, -4], "max": [-21.75, 3.2, -3.8], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "снабжение палки"},
+      {"min": [-22, 1.8, -1], "max": [-21.75, 3.2, -0.8], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "снабжение палки"},
+            {"min": [-22, 1.8, 1.8], "max": [-21.75, 3.2, 3.5], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "снабжение палки"},
+      {"min": [-22, 1.8, 4.8], "max": [-21.75, 3.2, 5], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "снабжение палки"},
+      {"min": [-22, 1.8, 7.8], "max": [-21.75, 3.2, 8], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "снабжение палки"},
+      {"min": [-22, 1.8, 9.8], "max": [-21.75, 3.2, 15], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "снабжение палки"},
+      {"min": [-22, 1.8, 18.8], "max": [-21.75, 3.2, 19], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "снабжение палки"},
+      {"min": [-22, 1.8, 21.8], "max": [-21.75, 3.2, 22], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "снабжение палки"},
+      {"min": [-22, 1.8, 24.8], "max": [-21.75, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "угол гуданова"},
+
+            {"min": [-19, 1.8, 24.8], "max": [-18.75, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-16, 1.8, 24.8], "max": [-15.75, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-10, 1.8, 24.8], "max": [0.75, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [3.75, 1.8, 24.8], "max": [4, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [5.75, 1.8, 24.8], "max": [6, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [7.75, 1.8, 24.8], "max": [8, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [9, 1.8, 24.8], "max": [18, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [20.75, 1.8, 24.8], "max": [21, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [23.75, 1.8, 24.8], "max": [24, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [26.75, 1.8, 24.8], "max": [27, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, 24.8], "max": [30, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "угол вахминой"},
+
+            {"min": [29.75, 1.8, 21.8], "max": [30, 3.2, 22], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, 19.8], "max": [30, 3.2, 20], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, 17.8], "max": [30, 3.2, 18], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, 15.8], "max": [30, 3.2, 16], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, 10.8], "max": [30, 3.2, 14], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, 6.8], "max": [30, 3.2, 7], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, 4.8], "max": [30, 3.2, 5], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, 2.8], "max": [30, 3.2, 3], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, -3], "max": [30, 3.2, 1], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, -5], "max": [30, 3.2, -4.75], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [29.75, 1.8, -7], "max": [30, 3.2, -6.75], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [28.75, 1.8, -10.25], "max": [30, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "угол мурзинов"},
+
+            {"min": [25.75, 1.8, -10.25], "max": [26, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [22.75, 1.8, -10.25], "max": [23, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [19.75, 1.8, -10.25], "max": [20, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [14.75, 1.8, -10.25], "max": [17, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [10.75, 1.8, -10.25], "max": [11, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [7.75, 1.8, -10.25], "max": [8, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [4.75, 1.8, -10.25], "max": [5, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-3.75, 1.8, -10.25], "max": [2, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-6, 1.8, -10.25], "max": [-5.75, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-9, 1.8, -10.25], "max": [-8.75, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-14, 1.8, -10.25], "max": [-11.75, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-17, 1.8, -10.25], "max": [-16.75, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-20, 1.8, -10.25], "max": [-19.75, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+            {"min": [-22, 1.8, -10.25], "max": [-21.75, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
 
 
 
 
-    {"min": [-22, -3.2, -10], "max": [-21.75, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
-    {"min": [29.75, -3.2, -10], "max": [30, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
-    {"min": [-22, -3.2, -10.25], "max": [30, 3.2, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
-    {"min": [-22, -3.2, 24.75], "max": [30, 3.2, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+
+    {"min": [-22, -3.2, -10], "max": [-21.75, 1.8, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+    {"min": [29.75, -3.2, -10], "max": [30, 1.8, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+    {"min": [-22, -3.2, -10.25], "max": [30, 1.8, -10], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
+    {"min": [-22, -3.2, 24.75], "max": [30, 1.8, 25], "color": "#FFDEAD", "texture": "/космо_и_опенспейс.jpg", "type": "wall"},
     {"min": [-21.75, 0, 14.75], "max": [-16, 3.2, 15], "color": "#00FFFF", "texture": "/космо_и_опенспейс.jpg", "type": "wall", "id": "gudanov paral d"},
     {"min": [-13.75, 0, 15], "max": [-10, 3.2, 25], "color": "#00FFFF", "texture": "/wall.jpg", "type": "wall", "id": "gudanov paral sh"},
     {"min": [-13.75, 1.1, 14.95], "max": [-10, 1.2, 15], "color": "#8B4513", "type": "wall", "id": "gudanov paral sh"},
@@ -267,7 +319,7 @@
     {"min": [0, 0, 18.5], "max": [0.75, 2, 23.7], "type": "collider_model",  "id": "неблок гардероб", "color": "#FF0000" },
     {"min": [-5.3, 0,10], "max": [-4.3, 1, 11], "type": "collider_model",  "id": "неблок кресло бункер ближний", "color": "#FF0000" },
     {"min": [-7.7, 0,10], "max": [-6.7, 1, 11], "type": "collider_model",  "id": "неблок кресло бункер дальний", "color": "#FF0000" },
-    {"min": [-13, 0,9], "max": [-12, 1, 11], "type": "blcollider_modelock",  "id": "неблок кресло бункер дальний", "color": "#FF0000" },
+    {"min": [-13, 0,9], "max": [-12, 1, 11], "type": "collider_model",  "id": "неблок кресло бункер дальний", "color": "#FF0000" },
 
     {"min": [-20, 0,16.5], "max": [-16.5, 1, 18.5], "type": "collider_model",  "id": "неблок большой стол днк", "color": "#FF0000" },
     {"min": [-20, 0,21.5], "max": [-16, 1, 22.5], "type": "collider_model",  "id": "неблок напротив гг стол днк", "color": "#FF0000" },
@@ -484,6 +536,8 @@
     {"id": "poster_team","src": "/vertpost.jpg","pos": [-6, 2,10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
     {"id": "poster_team","src": "/vertpost.jpg","pos": [14, 2,10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
         {"id": "poster_team","src": "/ямы.webp","pos": [-8, 2,4],"size": [1.2,1.5],"normal": [1,0,0],"offset": 0.02},
+                {"id": "яна у себя","src": "/яна.jpg","pos": [-14.5, 1.4,10],"size": [2,2.9],"normal": [0,0,0],"offset": 0.02},
+
 
     {"id": "poster_team","src": "/vertpost.jpg","pos": [16, 2,-10],"size": [1.2,1.5],"normal": [0,0,0],"offset": 0.02},
     {"id": "poster_team","src": "/bunker.jpg","pos": [-0.5, 2,10],"size": [0.5,0.2],"normal": [0,0,0],"offset": 0.02},
@@ -513,6 +567,16 @@
         {"src": "/10k.png","pos": [19, 1.55,11.5],"size": [1,1],"normal": [1,0,0],"offset": 0.05, "id": "10k в опенспейс"},
         {"src": "/союзчастоты.png","pos": [20.04, 1.05,18.483],"size": [0.13,0.15],"normal": [1,0,-0.5],"offset": 0.05, "id": "в опенспейс"},
         {"src": "/stonks.webp","pos": [19, 1.55,10.5],"size": [1,1],"normal": [1,0,0],"offset": 0.05, "id": "в опенспейс"},
+
+        {"src": "/фонулицы.jpg","pos": [5, -4,-20],"size": [60,40],"normal": [0,0,0],"offset": 0.5, "id": "сторона опенспейса косметики"},
+        {"src": "/фонопен.jpg","pos": [35, -5,10],"size": [60,30],"normal": [-1,0,0],"offset": 0.5, "id": "сторона опенспейса"},
+                {"src": "/фонопен.jpg","pos": [-30, -10,10],"size": [80,40],"normal": [1,0,0],"offset": 0.5, "id": "сторонакосмодрома"},
+                        {"src": "/фонаналитика.jpg","pos": [3.5, -4,40],"size": [62,30],"normal": [0,0,-1],"offset": 0.5, "id": "сторона аналитиков"},
+          {"src": "/фонобл.jpg","pos": [0, 13,15],"size": [100,100],"normal": [0,-1,0],"offset": 0.5, "id": "сторона аналитиков"},
+
+
+
+
 
 
         {"src": "/каничист.jpg","pos": [8, 2.2,14.7],"size": [0.6,0.8],"normal": [0,0,-1],"offset": 0.05, "id": "в опенспейс"},
