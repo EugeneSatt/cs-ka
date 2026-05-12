@@ -87,6 +87,7 @@ body {
   height: 18px;
   transform: translate(-50%, -50%);
   pointer-events: none;
+  z-index: 7;
 }
 
 #crosshair::before,
@@ -139,6 +140,56 @@ body {
 
 #scope-overlay.visible {
   opacity: 1;
+}
+
+#scope-overlay.aug-scope {
+  background:
+    linear-gradient(
+      90deg,
+      transparent calc(50% - 1px),
+      rgba(232, 238, 232, 0.78) calc(50% - 1px),
+      rgba(232, 238, 232, 0.78) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    linear-gradient(
+      transparent calc(50% - 1px),
+      rgba(232, 238, 232, 0.78) calc(50% - 1px),
+      rgba(232, 238, 232, 0.78) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    radial-gradient(
+      circle at 50% 50%,
+      transparent 0%,
+      transparent 20%,
+      rgba(8, 10, 8, 0.28) 30%,
+      rgba(6, 8, 6, 0.72) 54%,
+      rgba(0, 0, 0, 0.94) 100%
+    );
+}
+
+#scope-overlay.sniper-scope {
+  background:
+    linear-gradient(
+      90deg,
+      transparent calc(50% - 1px),
+      rgba(232, 238, 232, 0.78) calc(50% - 1px),
+      rgba(232, 238, 232, 0.78) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    linear-gradient(
+      transparent calc(50% - 1px),
+      rgba(232, 238, 232, 0.78) calc(50% - 1px),
+      rgba(232, 238, 232, 0.78) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    radial-gradient(
+      circle at 50% 50%,
+      transparent 0%,
+      transparent 12%,
+      rgba(12, 14, 12, 0.22) 17%,
+      rgba(8, 10, 8, 0.82) 34%,
+      rgba(0, 0, 0, 0.98) 100%
+    );
 }
 
 .overlay {
@@ -428,6 +479,7 @@ body {
 .buy-row {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .buy-row button {

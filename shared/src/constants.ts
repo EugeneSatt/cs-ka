@@ -7,8 +7,8 @@ export const CROUCH_EYE_HEIGHT = 1.0;
 
 export const GRAVITY = -20;
 
-export type WeaponType = 'rifle' | 'sniper' | 'shotgun';
-export type WeaponSlot = 'primary' | 'pistol' | 'grenade';
+export type WeaponType = 'rifle' | 'sniper' | 'shotgun' | 'aug';
+export type WeaponSlot = 'primary' | 'pistol' | 'explosive' | 'grenade' | 'smoke';
 export type Side = 'T' | 'CT';
 export type MatchTeam = 'A' | 'B';
 export type RoundPhase = 'waiting' | 'freeze' | 'live' | 'post' | 'match_over';
@@ -32,9 +32,9 @@ export type WeaponConfig = {
   pellets?: number;
 };
 
-export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', WeaponConfig> = {
+export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'aug' | 'pistol', WeaponConfig> = {
   rifle: {
-    baseDamage: 30,
+    baseDamage: 17,
     fireRate: 10,
     range: 99999,
     magSize: 30,
@@ -58,6 +58,14 @@ export const WEAPON_CONFIG: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', We
     spread: 0.12,
     pellets: 8,
   },
+  aug: {
+    baseDamage: 32,
+    fireRate: 9,
+    range: 99999,
+    magSize: 20,
+    reloadTime: 2.5,
+    spread: 0,
+  },
   pistol: {
     baseDamage: 18,
     fireRate: 4,
@@ -80,4 +88,19 @@ export const GRENADE_CONFIG = {
   stopSpeed: 0.6,
   radius: 5,
   maxDamage: 110,
+};
+
+export const GRENADE_POOL_CONFIG = {
+  spreadTime: 0.85,
+  duration: 4.5,
+  maxRadius: 3.2,
+  damageInterval: 0.25,
+  maxDamagePerTick: 9,
+};
+
+export const SMOKE_GRENADE_CONFIG = {
+  fuseTime: 1.8,
+  spreadTime: 1,
+  duration: 11,
+  maxRadius: 4.4,
 };

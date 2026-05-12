@@ -84,7 +84,15 @@ export type ClientLeave = {
   type: 'leave';
 };
 
-export type ClientMessage = ClientJoin | ClientInput | ClientBuy | ClientLeave;
+export type ClientPlaceShit = {
+  type: 'place_shit';
+};
+
+export type ClientPing = {
+  type: 'ping';
+};
+
+export type ClientMessage = ClientJoin | ClientInput | ClientBuy | ClientLeave | ClientPlaceShit | ClientPing;
 
 export type PlayerSnapshot = {
   id: string;
@@ -103,7 +111,9 @@ export type PlayerSnapshot = {
     primary: number;
     pistol: number;
   };
+  explosiveGrenades: number;
   grenades: number;
+  smokeGrenades: number;
   lastSeq: number;
   crouching: boolean;
   kills: number;
@@ -132,6 +142,38 @@ export type GrenadeSnapshot = {
   pos: Vec3;
   vel: Vec3;
   ownerId: string;
+  kind: 'explosive' | 'acid' | 'smoke';
+};
+
+export type GrenadePoolSnapshot = {
+  id: string;
+  pos: Vec3;
+  ownerId: string;
+  radius: number;
+  life: number;
+};
+
+export type SmokeCloudSnapshot = {
+  id: string;
+  pos: Vec3;
+  radius: number;
+  life: number;
+};
+
+export type PlacedModelSnapshot = {
+  id: string;
+  path: string;
+  pos: Vec3;
+  rot?: Vec3;
+  scale?: number | Vec3;
+};
+
+export type TrainingTargetSnapshot = {
+  id: string;
+  pos: Vec3;
+  yaw: number;
+  hp: number;
+  alive: boolean;
 };
 
 export type RoundState = {
@@ -172,6 +214,7 @@ export type ServerEvent =
   | {
       type: 'shot';
       shooterId: string;
+      weapon: WeaponType | 'pistol';
       origin: Vec3;
       dir: Vec3;
       distance: number;
@@ -203,13 +246,18 @@ export type ServerEvent =
       type: 'grenade_explode';
       pos: Vec3;
       ownerId: string;
+      kind: 'explosive' | 'acid' | 'smoke';
     };
 
 export type ServerSnapshot = {
   type: 'snapshot';
   now: number;
   players: PlayerSnapshot[];
+  trainingTargets: TrainingTargetSnapshot[];
   grenades: GrenadeSnapshot[];
+  grenadePools: GrenadePoolSnapshot[];
+  smokeClouds: SmokeCloudSnapshot[];
+  placedModels: PlacedModelSnapshot[];
   events: ServerEvent[];
   round: RoundState;
 };
@@ -238,4 +286,14 @@ export type LobbyErrorMessage = {
   message: string;
 };
 
-export type ServerMessage = WelcomeMessage | ServerSnapshot | PlayerMetaMessage | RoomListMessage | LobbyErrorMessage;
+export type PongMessage = {
+  type: 'pong';
+};
+
+export type ServerMessage =
+  | WelcomeMessage
+  | ServerSnapshot
+  | PlayerMetaMessage
+  | RoomListMessage
+  | LobbyErrorMessage
+  | PongMessage;

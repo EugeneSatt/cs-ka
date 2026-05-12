@@ -12,11 +12,13 @@ import type {
   LobbyErrorMessage,
   MapData,
   ModelDef,
+  PlacedModelSnapshot,
   PlayerMeta,
   PlayerSnapshot,
   RoomSummary,
   RoundState,
   ServerEvent,
+  TrainingTargetSnapshot,
   Vec3,
 } from '../../shared/src/types';
 import {
@@ -26,9 +28,11 @@ import {
   FFA_ROUND_TIME,
   FREEZE_TIME,
   GRENADE_CONFIG,
+  GRENADE_POOL_CONFIG,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
   ROUND_TIME,
+  SMOKE_GRENADE_CONFIG,
   SWAP_ROUND,
   TICK_RATE,
   TOTAL_ROUNDS,
@@ -39,7 +43,7 @@ import { clamp } from '../../shared/src/math';
 import { collidesAt, isOnGround, movePlayer, resolvePenetration } from '../../shared/src/physics';
 import { directionFromYawPitch, rayIntersectAABB } from '../../shared/src/ray';
 
-const WEAPON_MODEL_KEYS = ['ak-47', 'awp', 'spas_12', 'beretta'];
+const WEAPON_MODEL_KEYS = ['ak-47', 'aug', 'awp', 'spas_12', 'beretta'];
 const MODEL_DEFAULTS: Array<{ keys: string[]; box: { min: Vec3; max: Vec3 } }> = [
   { keys: ['arm_chair', 'armchair', 'office_creslo', 'chair'], box: { min: [-0.5, 0, -0.5], max: [0.5, 1.2, 0.5] } },
   { keys: ['divan', 'sofa'], box: { min: [-1.2, 0, -0.6], max: [1.2, 1.0, 0.6] } },
@@ -47,7 +51,7 @@ const MODEL_DEFAULTS: Array<{ keys: string[]; box: { min: Vec3; max: Vec3 } }> =
   { keys: ['table'], box: { min: [-1.2, 0, -1.2], max: [1.2, 1.0, 1.2] } },
   { keys: ['computer'], box: { min: [-0.35, 0, -0.35], max: [0.35, 0.7, 0.35] } },
   { keys: ['tablet'], box: { min: [-0.25, 0, -0.2], max: [0.25, 0.2, 0.2] } },
-  { keys: ['wardrobe', 'stenka', 'bookshkaf'], box: { min: [-0.8, 0, -0.35], max: [0.8, 2.0, 0.35] } },
+  { keys: ['wardrobe', 'stenka', 'bookshkaf', 'books_cabinet'], box: { min: [-0.8, 0, -0.35], max: [0.8, 2.0, 0.35] } },
   {
     keys: ['whiteboard', 'bulletin_board', 'cork_board', 'investigation_board'],
     box: { min: [-0.7, 0, -0.05], max: [0.7, 1.2, 0.05] },
@@ -62,12 +66,26 @@ const MAX_FACE_LENGTH = 180_000;
 const MAX_PLAYERS_PER_ROOM = 8;
 const ROOM_COUNT = 4;
 const ROOM_LIST_INTERVAL_MS = 1000;
+const CLIENT_HEARTBEAT_TIMEOUT_MS = 15_000;
+const CLIENT_HEARTBEAT_SWEEP_MS = 3_000;
+const SHIT_E_PATH = '/shit_e.glb';
+const SHIT_E_SCALE = 0.35;
+const SHIT_E_Y_OFFSET = 0.372;
+const SHIT_E_PLACE_COOLDOWN = 0.25;
+const MAX_PLACED_SHIT_E = 64;
 const FFA_SPAWN_JITTER = 3.2;
 const FFA_SPAWN_ATTEMPTS = 18;
 const FFA_SPAWN_SAMPLE_STEP = 6;
 const FFA_SPAWN_EDGE_MARGIN = 1.1;
 const FFA_SPAWN_MERGE_DIST_SQ = 4;
 const FFA_SPAWN_MAX_Y = 0.5;
+const TRAINING_ROOM_ID = 'training-room';
+const TRAINING_ROOM_NAME = 'Training Room';
+const TRAINING_TARGET_HP = 100;
+const TRAINING_TARGET_RESPAWN_TIME = 1.1;
+const TRAINING_TARGET_HEIGHT = 1.92;
+const TRAINING_TARGET_HALF_SPAN = 0.34;
+const TRAINING_TARGET_HALF_THICKNESS = 0.08;
 
 function modelCollider(model: ModelDef): { min: Vec3; max: Vec3 } | null {
   if (model.collider) {
@@ -249,7 +267,57 @@ function buildFfaSpawnAnchors(map: MapData): SpawnAnchor[] {
   return anchors;
 }
 
-const ffaSpawnAnchors = buildFfaSpawnAnchors(mapData);
+type TrainingTargetPlacement = {
+  id: string;
+  center: Vec3;
+  plane: 'x' | 'z';
+};
+
+const TRAINING_TARGETS: TrainingTargetPlacement[] = [
+  { id: 'west_supply', center: [-19.0, 0, 19.0], plane: 'z' },
+  { id: 'west_corridor', center: [-11.2, 0, 4.4], plane: 'x' },
+  { id: 'cosmetics', center: [2.1, 0, -0.2], plane: 'z' },
+  { id: 'center_open', center: [8.0, 0, 20.8], plane: 'z' },
+  { id: 'east_open', center: [21.8, 0, 16.4], plane: 'x' },
+  { id: 'upper_mid', center: [3.8, 3.3, 15.7], plane: 'z' },
+  { id: 'upper_west', center: [-17.8, 3.3, 20.8], plane: 'z' },
+  { id: 'upper_east', center: [23.8, 3.3, 20.25], plane: 'z' },
+];
+
+function buildTrainingMap(baseMap: MapData): MapData {
+  return {
+    ...baseMap,
+    name: `${baseMap.name} Training`,
+  };
+}
+
+function yawForTrainingPlane(plane: 'x' | 'z'): number {
+  return plane === 'x' ? Math.PI * 0.5 : 0;
+}
+
+const trainingMapData = buildTrainingMap(mapData);
+
+type TrainingTarget = {
+  id: string;
+  pos: Vec3;
+  yaw: number;
+  plane: 'x' | 'z';
+  hp: number;
+  alive: boolean;
+  respawnAt: number;
+};
+
+function buildTrainingTargets(placements: TrainingTargetPlacement[]): TrainingTarget[] {
+  return placements.map((placement) => ({
+    id: `training-${placement.id}`,
+    pos: [...placement.center],
+    yaw: yawForTrainingPlane(placement.plane),
+    plane: placement.plane,
+    hp: TRAINING_TARGET_HP,
+    alive: true,
+    respawnAt: Infinity,
+  }));
+}
 
 const PORT = Number(process.env.PORT ?? 8080);
 const wss = new WebSocketServer({ port: PORT });
@@ -272,7 +340,9 @@ type Player = {
   onGround: boolean;
   ammoPrimary: number;
   ammoPistol: number;
+  explosiveGrenades: number;
   grenades: number;
+  smokeGrenades: number;
   lastSeq: number;
   inputQueue: InputPayload[];
   nextFireTime: number;
@@ -285,6 +355,7 @@ type Player = {
   kills: number;
   deaths: number;
   respawnAt: number;
+  nextPlaceTime: number;
 };
 
 type Grenade = {
@@ -292,7 +363,28 @@ type Grenade = {
   pos: Vec3;
   vel: Vec3;
   ownerId: string;
+  kind: 'explosive' | 'acid' | 'smoke';
   explodeAt: number;
+};
+
+type GrenadePool = {
+  id: string;
+  pos: Vec3;
+  ownerId: string;
+  createdAt: number;
+  expireAt: number;
+  nextDamageAt: number;
+};
+
+type SmokeCloud = {
+  id: string;
+  pos: Vec3;
+  createdAt: number;
+  expireAt: number;
+};
+
+type PlacedModel = PlacedModelSnapshot & {
+  ownerId: string;
 };
 
 type SpawnAnchor = {
@@ -305,6 +397,7 @@ type ConnectionState = {
   ws: WebSocket;
   playerId: string | null;
   roomId: string | null;
+  lastHeardAt: number;
 };
 
 type JoinResult =
@@ -317,11 +410,26 @@ type RoomController = {
   join(ws: WebSocket, message: ClientJoin): JoinResult;
   handleInput(playerId: string, input: InputPayload): void;
   handleBuy(playerId: string, primary: WeaponType): void;
+  handlePlaceShit(playerId: string): void;
   leave(playerId: string): void;
   tick(): void;
   getSummary(): RoomSummary;
   sendWelcome(player: Player): void;
   broadcastPlayerMeta(player: Player): void;
+};
+
+type RoomConfig = {
+  map: MapData;
+  fixedMode?: GameMode;
+  minPlayers?: number;
+  defaultTeamSize?: number;
+  capacity?: number;
+  trainingTargets?: TrainingTargetPlacement[];
+  throwableLoadout?: {
+    explosiveGrenades?: number;
+    grenades?: number;
+    smokeGrenades?: number;
+  };
 };
 
 let nextPlayerId = 1;
@@ -339,9 +447,23 @@ function sendLobbyError(ws: WebSocket, message: string) {
   sendJson(ws, payload);
 }
 
-function createRoom(id: string, name: string): RoomController {
+function createRoom(id: string, name: string, config: RoomConfig): RoomController {
+  const mapData = config.map;
+  const ffaSpawnAnchors = buildFfaSpawnAnchors(mapData);
+  const fixedMode = config.fixedMode;
+  const requiredPlayerCount = Math.max(1, Math.floor(config.minPlayers ?? 2));
+  const defaultTeamSize = clamp(Math.floor(config.defaultTeamSize ?? 4), 1, 4);
+  const trainingTargets = buildTrainingTargets(config.trainingTargets ?? []);
+  const throwableLoadout = {
+    explosiveGrenades: Math.max(0, Math.floor(config.throwableLoadout?.explosiveGrenades ?? 1)),
+    grenades: Math.max(0, Math.floor(config.throwableLoadout?.grenades ?? 1)),
+    smokeGrenades: Math.max(0, Math.floor(config.throwableLoadout?.smokeGrenades ?? 1)),
+  };
   const players = new Map<string, Player>();
   const grenades: Grenade[] = [];
+  const grenadePools: GrenadePool[] = [];
+  const smokeClouds: SmokeCloud[] = [];
+  const placedModels: PlacedModel[] = [];
 
   let gameTime = 0;
   let round = 1;
@@ -352,8 +474,8 @@ function createRoom(id: string, name: string): RoomController {
   const scores = { A: 0, B: 0 };
   let pendingEvents: ServerEvent[] = [];
   let matchOverAnnounced = false;
-  let gameMode: GameMode = 'team';
-  let teamSizeConfig = 4;
+  let gameMode: GameMode = fixedMode ?? 'team';
+  let teamSizeConfig = gameMode === 'team' ? defaultTeamSize : 4;
 
   function sideByTeam(currentRound: number): { A: Side; B: Side } {
     if (gameMode === 'ffa') {
@@ -404,7 +526,15 @@ function createRoom(id: string, name: string): RoomController {
   }
 
   function requiredPlayers(): number {
-    return 2;
+    return requiredPlayerCount;
+  }
+
+  function resetTrainingTargets() {
+    for (const target of trainingTargets) {
+      target.hp = TRAINING_TARGET_HP;
+      target.alive = true;
+      target.respawnAt = Infinity;
+    }
   }
 
   function readyToStart(): boolean {
@@ -566,7 +696,9 @@ function createRoom(id: string, name: string): RoomController {
     player.weapon = 'primary';
     player.ammoPrimary = WEAPON_CONFIG[player.primary].magSize;
     player.ammoPistol = WEAPON_CONFIG.pistol.magSize;
-    player.grenades = 1;
+    player.explosiveGrenades = throwableLoadout.explosiveGrenades;
+    player.grenades = throwableLoadout.grenades;
+    player.smokeGrenades = throwableLoadout.smokeGrenades;
     player.nextFireTime = 0;
     player.reloadEndTime = 0;
     player.reloading = null;
@@ -575,6 +707,7 @@ function createRoom(id: string, name: string): RoomController {
     player.buyLocked = false;
     player.buyChoice = null;
     player.respawnAt = Infinity;
+    player.nextPlaceTime = 0;
   }
 
   function startRound() {
@@ -584,6 +717,10 @@ function createRoom(id: string, name: string): RoomController {
     timeLeft = gameMode === 'team' ? ROUND_TIME : FFA_ROUND_TIME;
     postLeft = 0;
     grenades.length = 0;
+    grenadePools.length = 0;
+    smokeClouds.length = 0;
+    placedModels.length = 0;
+    resetTrainingTargets();
 
     const resetStats = round === 1;
     if (resetStats) {
@@ -623,6 +760,10 @@ function createRoom(id: string, name: string): RoomController {
 
   function resetRoomState() {
     grenades.length = 0;
+    grenadePools.length = 0;
+    smokeClouds.length = 0;
+    placedModels.length = 0;
+    resetTrainingTargets();
     round = 1;
     phase = 'waiting';
     freezeLeft = FREEZE_TIME;
@@ -632,8 +773,10 @@ function createRoom(id: string, name: string): RoomController {
     scores.B = 0;
     pendingEvents = [];
     matchOverAnnounced = false;
-    gameMode = 'team';
-    teamSizeConfig = 4;
+    gameMode = fixedMode ?? 'team';
+    teamSizeConfig = gameMode === 'team' ? defaultTeamSize : 4;
+    freezeLeft = gameMode === 'team' ? FREEZE_TIME : 0;
+    timeLeft = gameMode === 'team' ? ROUND_TIME : FFA_ROUND_TIME;
   }
 
   function enterMatchOver() {
@@ -653,6 +796,9 @@ function createRoom(id: string, name: string): RoomController {
     postLeft = 0;
     phase = 'waiting';
     grenades.length = 0;
+    grenadePools.length = 0;
+    smokeClouds.length = 0;
+    placedModels.length = 0;
     for (const player of players.values()) {
       player.alive = false;
       player.pendingSpawn = false;
@@ -681,6 +827,9 @@ function createRoom(id: string, name: string): RoomController {
   function endRoundDraw(reason: 'time' | 'survivors') {
     pendingEvents.push({ type: 'round_draw', reason });
     grenades.length = 0;
+    grenadePools.length = 0;
+    smokeClouds.length = 0;
+    placedModels.length = 0;
     round += 1;
     if (round > TOTAL_ROUNDS) {
       enterMatchOver();
@@ -859,6 +1008,78 @@ function createRoom(id: string, name: string): RoomController {
     return Math.hypot(closestX - pos[0], closestY - pos[1], closestZ - pos[2]);
   }
 
+  function projectGrenadePoolPos(pos: Vec3): Vec3 {
+    let surfaceY = Number.NEGATIVE_INFINITY;
+    for (const box of mapData.boxes) {
+      if (pos[0] < box.min[0] || pos[0] > box.max[0] || pos[2] < box.min[2] || pos[2] > box.max[2]) {
+        continue;
+      }
+      if (box.max[1] <= pos[1] + 0.25 && box.max[1] > surfaceY) {
+        surfaceY = box.max[1];
+      }
+    }
+    return [pos[0], (surfaceY === Number.NEGATIVE_INFINITY ? pos[1] : surfaceY) + 0.03, pos[2]];
+  }
+
+  function projectSmokeCloudPos(pos: Vec3): Vec3 {
+    const floorY = findFloorYAt(pos[0], pos[2], pos[1] + 0.25);
+    return [pos[0], floorY + 1.15, pos[2]];
+  }
+
+  function findFloorYAt(x: number, z: number, maxY: number): number {
+    let surfaceY = Number.NEGATIVE_INFINITY;
+    for (const box of mapData.boxes) {
+      if (x < box.min[0] || x > box.max[0] || z < box.min[2] || z > box.max[2]) {
+        continue;
+      }
+      if (box.max[1] <= maxY && box.max[1] > surfaceY) {
+        surfaceY = box.max[1];
+      }
+    }
+    return surfaceY === Number.NEGATIVE_INFINITY ? maxY : surfaceY;
+  }
+
+  function grenadePoolRadius(pool: GrenadePool): number {
+    const spreadT = clamp((gameTime - pool.createdAt) / GRENADE_POOL_CONFIG.spreadTime, 0, 1);
+    const easedSpread = 1 - (1 - spreadT) * (1 - spreadT);
+    return GRENADE_POOL_CONFIG.maxRadius * easedSpread;
+  }
+
+  function smokeCloudRadius(cloud: SmokeCloud): number {
+    const spreadT = clamp((gameTime - cloud.createdAt) / SMOKE_GRENADE_CONFIG.spreadTime, 0, 1);
+    const easedSpread = 1 - (1 - spreadT) * (1 - spreadT);
+    return SMOKE_GRENADE_CONFIG.maxRadius * easedSpread;
+  }
+
+  function grenadePoolDamageDistance(player: Player, pos: Vec3): number {
+    if (Math.abs(player.pos[1] - pos[1]) > 0.45) {
+      return Infinity;
+    }
+    const closestX = clamp(pos[0], player.pos[0] - PLAYER_RADIUS, player.pos[0] + PLAYER_RADIUS);
+    const closestZ = clamp(pos[2], player.pos[2] - PLAYER_RADIUS, player.pos[2] + PLAYER_RADIUS);
+    return Math.hypot(closestX - pos[0], closestZ - pos[2]);
+  }
+
+  function grenadeDamageDistanceToTarget(target: TrainingTarget, pos: Vec3): number {
+    const halfX = target.plane === 'x' ? TRAINING_TARGET_HALF_THICKNESS : TRAINING_TARGET_HALF_SPAN;
+    const halfZ = target.plane === 'x' ? TRAINING_TARGET_HALF_SPAN : TRAINING_TARGET_HALF_THICKNESS;
+    const closestX = clamp(pos[0], target.pos[0] - halfX, target.pos[0] + halfX);
+    const closestY = clamp(pos[1], target.pos[1], target.pos[1] + TRAINING_TARGET_HEIGHT);
+    const closestZ = clamp(pos[2], target.pos[2] - halfZ, target.pos[2] + halfZ);
+    return Math.hypot(closestX - pos[0], closestY - pos[1], closestZ - pos[2]);
+  }
+
+  function grenadePoolDamageDistanceToTarget(target: TrainingTarget, pos: Vec3): number {
+    if (Math.abs(target.pos[1] - pos[1]) > 0.45) {
+      return Infinity;
+    }
+    const halfX = target.plane === 'x' ? TRAINING_TARGET_HALF_THICKNESS : TRAINING_TARGET_HALF_SPAN;
+    const halfZ = target.plane === 'x' ? TRAINING_TARGET_HALF_SPAN : TRAINING_TARGET_HALF_THICKNESS;
+    const closestX = clamp(pos[0], target.pos[0] - halfX, target.pos[0] + halfX);
+    const closestZ = clamp(pos[2], target.pos[2] - halfZ, target.pos[2] + halfZ);
+    return Math.hypot(closestX - pos[0], closestZ - pos[2]);
+  }
+
   function applyDamage(target: Player, attackerId: string, damage: number, weapon: WeaponSlot | WeaponType) {
     target.hp = Math.max(0, target.hp - damage);
     pendingEvents.push({
@@ -888,8 +1109,38 @@ function createRoom(id: string, name: string): RoomController {
     });
   }
 
-  function explodeGrenade(grenade: Grenade) {
-    pendingEvents.push({ type: 'grenade_explode', pos: grenade.pos, ownerId: grenade.ownerId });
+  function applyTrainingTargetDamage(
+    target: TrainingTarget,
+    attackerId: string,
+    damage: number,
+    weapon: WeaponSlot | WeaponType
+  ) {
+    target.hp = Math.max(0, target.hp - damage);
+    pendingEvents.push({
+      type: 'hit',
+      attackerId,
+      victimId: target.id,
+      damage,
+      remainingHp: target.hp,
+    });
+    if (target.hp > 0) {
+      return;
+    }
+    target.alive = false;
+    target.respawnAt = gameTime + TRAINING_TARGET_RESPAWN_TIME;
+    const attacker = players.get(attackerId);
+    if (attacker) {
+      attacker.kills += 1;
+    }
+    pendingEvents.push({
+      type: 'kill',
+      attackerId,
+      victimId: target.id,
+      weapon,
+    });
+  }
+
+  function applyExplosiveGrenadeDamage(grenade: Grenade) {
     for (const player of players.values()) {
       if (!player.alive) {
         continue;
@@ -903,8 +1154,120 @@ function createRoom(id: string, name: string): RoomController {
       }
       const damage = Math.max(0, Math.ceil(GRENADE_CONFIG.maxDamage * (1 - dist / GRENADE_CONFIG.radius)));
       if (damage > 0) {
-        applyDamage(player, grenade.ownerId, damage, 'grenade');
+        applyDamage(player, grenade.ownerId, damage, 'explosive');
       }
+    }
+    for (const target of trainingTargets) {
+      if (!target.alive) {
+        continue;
+      }
+      const dist = grenadeDamageDistanceToTarget(target, grenade.pos);
+      if (dist > GRENADE_CONFIG.radius) {
+        continue;
+      }
+      const damage = Math.max(0, Math.ceil(GRENADE_CONFIG.maxDamage * (1 - dist / GRENADE_CONFIG.radius)));
+      if (damage > 0) {
+        applyTrainingTargetDamage(target, grenade.ownerId, damage, 'explosive');
+      }
+    }
+  }
+
+  function explodeGrenade(grenade: Grenade) {
+    pendingEvents.push({
+      type: 'grenade_explode',
+      pos: grenade.pos,
+      ownerId: grenade.ownerId,
+      kind: grenade.kind,
+    });
+    if (grenade.kind === 'smoke') {
+      smokeClouds.push({
+        id: `${grenade.id}-smoke`,
+        pos: projectSmokeCloudPos(grenade.pos),
+        createdAt: gameTime,
+        expireAt: gameTime + SMOKE_GRENADE_CONFIG.duration,
+      });
+      return;
+    }
+    if (grenade.kind === 'explosive') {
+      applyExplosiveGrenadeDamage(grenade);
+      return;
+    }
+    grenadePools.push({
+      id: `${grenade.id}-pool`,
+      pos: projectGrenadePoolPos(grenade.pos),
+      ownerId: grenade.ownerId,
+      createdAt: gameTime,
+      expireAt: gameTime + GRENADE_POOL_CONFIG.duration,
+      nextDamageAt: gameTime + GRENADE_POOL_CONFIG.damageInterval * 0.5,
+    });
+  }
+
+  function updateGrenadePools() {
+    for (let i = grenadePools.length - 1; i >= 0; i -= 1) {
+      const pool = grenadePools[i];
+      if (gameTime >= pool.expireAt) {
+        grenadePools.splice(i, 1);
+        continue;
+      }
+
+      const radius = grenadePoolRadius(pool);
+      if (radius <= 0.05 || gameTime + 1e-6 < pool.nextDamageAt) {
+        continue;
+      }
+
+      while (gameTime + 1e-6 >= pool.nextDamageAt) {
+        pool.nextDamageAt += GRENADE_POOL_CONFIG.damageInterval;
+        for (const player of players.values()) {
+          if (!player.alive) {
+            continue;
+          }
+          if (
+            gameMode === 'team' &&
+            player.id !== pool.ownerId &&
+            playerSide(player) === playerSideById(pool.ownerId)
+          ) {
+            continue;
+          }
+          const dist = grenadePoolDamageDistance(player, pool.pos);
+          if (dist > radius) {
+            continue;
+          }
+          const falloff = 1 - dist / radius;
+          const damage = Math.max(1, Math.ceil(GRENADE_POOL_CONFIG.maxDamagePerTick * falloff));
+          applyDamage(player, pool.ownerId, damage, 'grenade');
+        }
+        for (const target of trainingTargets) {
+          if (!target.alive) {
+            continue;
+          }
+          const dist = grenadePoolDamageDistanceToTarget(target, pool.pos);
+          if (dist > radius) {
+            continue;
+          }
+          const falloff = 1 - dist / radius;
+          const damage = Math.max(1, Math.ceil(GRENADE_POOL_CONFIG.maxDamagePerTick * falloff));
+          applyTrainingTargetDamage(target, pool.ownerId, damage, 'grenade');
+        }
+      }
+    }
+  }
+
+  function updateSmokeClouds() {
+    for (let i = smokeClouds.length - 1; i >= 0; i -= 1) {
+      if (gameTime >= smokeClouds[i].expireAt) {
+        smokeClouds.splice(i, 1);
+      }
+    }
+  }
+
+  function updateTrainingTargetRespawns() {
+    for (const target of trainingTargets) {
+      if (target.alive || gameTime < target.respawnAt) {
+        continue;
+      }
+      target.hp = TRAINING_TARGET_HP;
+      target.alive = true;
+      target.respawnAt = Infinity;
     }
   }
 
@@ -928,7 +1291,7 @@ function createRoom(id: string, name: string): RoomController {
   }
 
   function tryStartReload(player: Player) {
-    if (player.reloading || player.weapon === 'grenade') {
+    if (player.reloading || player.weapon === 'explosive' || player.weapon === 'grenade' || player.weapon === 'smoke') {
       return;
     }
     const slot = player.weapon === 'primary' ? 'primary' : 'pistol';
@@ -950,7 +1313,20 @@ function createRoom(id: string, name: string): RoomController {
   }
 
   function tryThrowGrenade(player: Player) {
-    if (player.grenades <= 0) {
+    let kind: Grenade['kind'] | null = null;
+    if (player.weapon === 'explosive') {
+      kind = 'explosive';
+    } else if (player.weapon === 'grenade') {
+      kind = 'acid';
+    } else if (player.weapon === 'smoke') {
+      kind = 'smoke';
+    }
+    if (!kind) {
+      return;
+    }
+    const available =
+      kind === 'explosive' ? player.explosiveGrenades : kind === 'smoke' ? player.smokeGrenades : player.grenades;
+    if (available <= 0) {
       return;
     }
     const viewHeight = player.crouching ? CROUCH_EYE_HEIGHT : EYE_HEIGHT;
@@ -970,14 +1346,47 @@ function createRoom(id: string, name: string): RoomController {
       pos: origin,
       vel,
       ownerId: player.id,
-      explodeAt: gameTime + GRENADE_CONFIG.fuseTime,
+      kind,
+      explodeAt: gameTime + (kind === 'smoke' ? SMOKE_GRENADE_CONFIG.fuseTime : GRENADE_CONFIG.fuseTime),
     });
-    player.grenades -= 1;
+    if (kind === 'explosive') {
+      player.explosiveGrenades -= 1;
+    } else if (kind === 'smoke') {
+      player.smokeGrenades -= 1;
+    } else {
+      player.grenades -= 1;
+    }
   }
 
   function tryBuy(player: Player, primary: WeaponType) {
     if (inBuyWindow()) {
       applyPrimary(player, primary);
+    }
+  }
+
+  function handlePlaceShit(playerId: string) {
+    const player = players.get(playerId);
+    if (!player || !player.alive) {
+      return;
+    }
+    if (phase !== 'live' && phase !== 'freeze') {
+      return;
+    }
+    if (gameTime < player.nextPlaceTime) {
+      return;
+    }
+    player.nextPlaceTime = gameTime + SHIT_E_PLACE_COOLDOWN;
+    const floorY = findFloorYAt(player.pos[0], player.pos[2], player.pos[1] + 0.2);
+    placedModels.push({
+      id: `shit-${player.id}-${Math.floor(gameTime * 1000)}`,
+      ownerId: player.id,
+      path: SHIT_E_PATH,
+      pos: [player.pos[0], floorY + SHIT_E_Y_OFFSET, player.pos[2]],
+      rot: [0, player.yaw, 0],
+      scale: SHIT_E_SCALE,
+    });
+    if (placedModels.length > MAX_PLACED_SHIT_E) {
+      placedModels.splice(0, placedModels.length - MAX_PLACED_SHIT_E);
     }
   }
 
@@ -1026,6 +1435,27 @@ function createRoom(id: string, name: string): RoomController {
     return closest;
   }
 
+  function raycastTrainingTargets(origin: Vec3, dir: Vec3, range: number): { target: TrainingTarget; distance: number } | null {
+    let closest: { target: TrainingTarget; distance: number } | null = null;
+    for (const target of trainingTargets) {
+      if (!target.alive) {
+        continue;
+      }
+      const halfX = target.plane === 'x' ? TRAINING_TARGET_HALF_THICKNESS : TRAINING_TARGET_HALF_SPAN;
+      const halfZ = target.plane === 'x' ? TRAINING_TARGET_HALF_SPAN : TRAINING_TARGET_HALF_THICKNESS;
+      const min: Vec3 = [target.pos[0] - halfX, target.pos[1], target.pos[2] - halfZ];
+      const max: Vec3 = [target.pos[0] + halfX, target.pos[1] + TRAINING_TARGET_HEIGHT, target.pos[2] + halfZ];
+      const dist = rayIntersectAABB(origin, dir, min, max);
+      if (dist === null || dist < 0 || dist > range) {
+        continue;
+      }
+      if (!closest || dist < closest.distance) {
+        closest = { target, distance: dist };
+      }
+    }
+    return closest;
+  }
+
   function fireHitscan(
     player: Player,
     origin: Vec3,
@@ -1044,12 +1474,24 @@ function createRoom(id: string, name: string): RoomController {
       origin[2] + dir[2] * muzzleOffset,
     ];
     const mapDist = raycastMap(muzzle, dir, range);
-    const hit = raycastPlayers(muzzle, dir, range, player.id);
+    const playerHit = raycastPlayers(muzzle, dir, range, player.id);
+    const trainingTargetHit = raycastTrainingTargets(muzzle, dir, range);
+    const hit =
+      playerHit && trainingTargetHit
+        ? playerHit.distance <= trainingTargetHit.distance
+          ? { kind: 'player' as const, distance: playerHit.distance, player: playerHit.player }
+          : { kind: 'training_target' as const, distance: trainingTargetHit.distance, target: trainingTargetHit.target }
+        : playerHit
+        ? { kind: 'player' as const, distance: playerHit.distance, player: playerHit.player }
+        : trainingTargetHit
+        ? { kind: 'training_target' as const, distance: trainingTargetHit.distance, target: trainingTargetHit.target }
+        : null;
     const hitEps = 0.01;
     const travel = hit && hit.distance - hitEps < mapDist ? hit.distance : mapDist;
     pendingEvents.push({
       type: 'shot',
       shooterId: player.id,
+      weapon: weaponType,
       origin: muzzle,
       dir,
       distance: Math.min(range, travel),
@@ -1062,21 +1504,26 @@ function createRoom(id: string, name: string): RoomController {
       muzzle[1] + dir[1] * hit.distance,
       muzzle[2] + dir[2] * hit.distance,
     ];
-    const rel = hitPoint[1] - hit.player.pos[1];
+    const rel = hit.kind === 'player' ? hitPoint[1] - hit.player.pos[1] : hitPoint[1] - hit.target.pos[1];
+    const targetHeight = hit.kind === 'player' ? PLAYER_HEIGHT : TRAINING_TARGET_HEIGHT;
     let multiplier = 1;
-    if (rel > PLAYER_HEIGHT * 0.75) {
-      multiplier = 1.5;
-    } else if (rel < PLAYER_HEIGHT * 0.35) {
+    if (rel > targetHeight * 0.75) {
+      multiplier = weaponType === 'rifle' ? 3 : 1.5;
+    } else if (rel < targetHeight * 0.35) {
       multiplier = 0.75;
     }
     const damage = Math.floor(baseDamage * multiplier);
     if (damage > 0) {
-      applyDamage(hit.player, player.id, damage, weaponType);
+      if (hit.kind === 'player') {
+        applyDamage(hit.player, player.id, damage, weaponType);
+      } else {
+        applyTrainingTargetDamage(hit.target, player.id, damage, weaponType);
+      }
     }
   }
 
   function tryShoot(player: Player) {
-    if (player.reloading || player.weapon === 'grenade') {
+    if (player.reloading || player.weapon === 'explosive' || player.weapon === 'grenade' || player.weapon === 'smoke') {
       return;
     }
     const now = gameTime;
@@ -1102,12 +1549,14 @@ function createRoom(id: string, name: string): RoomController {
     const viewOrigin: Vec3 = [player.pos[0], player.pos[1] + viewHeight, player.pos[2]];
     const viewDir = directionFromYawPitch(player.yaw, player.pitch);
     const right: Vec3 = [Math.cos(player.yaw), 0, -Math.sin(player.yaw)];
+    const centeredScopeAim = weaponType === 'sniper' || weaponType === 'aug';
     const muzzleForward = weaponType === 'sniper' ? 0.45 : weaponType === 'shotgun' ? 0.35 : 0.3;
-    const sideOffset = weaponType === 'pistol' ? 0.08 : 0.12;
-    const upOffset = 0.03;
+    const sideOffset = centeredScopeAim ? 0 : weaponType === 'pistol' ? 0.08 : 0.12;
+    // Keep scoped rifles centered on the optic while preserving the lower AK-47 muzzle line.
+    const upOffset = centeredScopeAim ? 0 : weaponType === 'rifle' ? -0.02 : 0.03;
     const origin: Vec3 = [
       viewOrigin[0] + viewDir[0] * muzzleForward + right[0] * sideOffset,
-      viewOrigin[1] + upOffset,
+      viewOrigin[1] + viewDir[1] * muzzleForward + upOffset,
       viewOrigin[2] + viewDir[2] * muzzleForward + right[2] * sideOffset,
     ];
 
@@ -1308,7 +1757,9 @@ function createRoom(id: string, name: string): RoomController {
           primary: player.ammoPrimary,
           pistol: player.ammoPistol,
         },
+        explosiveGrenades: player.explosiveGrenades,
         grenades: player.grenades,
+        smokeGrenades: player.smokeGrenades,
         lastSeq: player.lastSeq,
         crouching: player.crouching,
         kills: player.kills,
@@ -1316,6 +1767,16 @@ function createRoom(id: string, name: string): RoomController {
       });
     }
     return snapshots;
+  }
+
+  function buildTrainingTargetSnapshots(): TrainingTargetSnapshot[] {
+    return trainingTargets.map((target) => ({
+      id: target.id,
+      pos: target.pos,
+      yaw: target.yaw,
+      hp: target.hp,
+      alive: target.alive,
+    }));
   }
 
   function getPlayersMeta(): PlayerMeta[] {
@@ -1363,11 +1824,12 @@ function createRoom(id: string, name: string): RoomController {
       return { ok: false, error: 'Room is full.' };
     }
 
-    const requestedMode = message.matchMode === 'ffa' || message.matchMode === 'team' ? message.matchMode : 'team';
+    const requestedMode =
+      fixedMode ?? (message.matchMode === 'ffa' || message.matchMode === 'team' ? message.matchMode : 'team');
     if (players.size === 0) {
       resetRoomState();
       gameMode = requestedMode;
-      teamSizeConfig = gameMode === 'team' ? clamp(Math.floor(message.teamSize ?? 4), 1, 4) : 4;
+      teamSizeConfig = gameMode === 'team' ? clamp(Math.floor(message.teamSize ?? defaultTeamSize), 1, 4) : 4;
     } else if (requestedMode !== gameMode) {
       return {
         ok: false,
@@ -1430,7 +1892,9 @@ function createRoom(id: string, name: string): RoomController {
       onGround: true,
       ammoPrimary: WEAPON_CONFIG[primary].magSize,
       ammoPistol: WEAPON_CONFIG.pistol.magSize,
-      grenades: 1,
+      explosiveGrenades: throwableLoadout.explosiveGrenades,
+      grenades: throwableLoadout.grenades,
+      smokeGrenades: throwableLoadout.smokeGrenades,
       lastSeq: 0,
       inputQueue: [],
       nextFireTime: 0,
@@ -1443,6 +1907,7 @@ function createRoom(id: string, name: string): RoomController {
       kills: 0,
       deaths: 0,
       respawnAt: 0,
+      nextPlaceTime: 0,
     };
 
     if (phase !== 'match_over') {
@@ -1480,6 +1945,9 @@ function createRoom(id: string, name: string): RoomController {
     updateReloads();
     updateGrenades(dt);
     processInputs();
+    updateGrenadePools();
+    updateSmokeClouds();
+    updateTrainingTargetRespawns();
     processRespawns();
     resolvePlayerOverlaps();
     applyDefaultBuys();
@@ -1503,11 +1971,33 @@ function createRoom(id: string, name: string): RoomController {
       type: 'snapshot',
       now: gameTime,
       players: buildSnapshots(),
+      trainingTargets: buildTrainingTargetSnapshots(),
       grenades: grenades.map((grenade) => ({
         id: grenade.id,
         pos: grenade.pos,
         vel: grenade.vel,
         ownerId: grenade.ownerId,
+        kind: grenade.kind,
+      })),
+      grenadePools: grenadePools.map((pool) => ({
+        id: pool.id,
+        pos: pool.pos,
+        ownerId: pool.ownerId,
+        radius: grenadePoolRadius(pool),
+        life: Math.max(0, pool.expireAt - gameTime),
+      })),
+      smokeClouds: smokeClouds.map((cloud) => ({
+        id: cloud.id,
+        pos: cloud.pos,
+        radius: smokeCloudRadius(cloud),
+        life: Math.max(0, cloud.expireAt - gameTime),
+      })),
+      placedModels: placedModels.map((model) => ({
+        id: model.id,
+        path: model.path,
+        pos: model.pos,
+        rot: model.rot,
+        scale: model.scale,
       })),
       events: pendingEvents,
       round: roundState,
@@ -1525,6 +2015,7 @@ function createRoom(id: string, name: string): RoomController {
     join,
     handleInput,
     handleBuy,
+    handlePlaceShit,
     leave,
     tick,
     getSummary,
@@ -1535,9 +2026,35 @@ function createRoom(id: string, name: string): RoomController {
 
 const rooms = Array.from({ length: ROOM_COUNT }, (_, index) => {
   const roomIndex = index + 1;
-  return createRoom(`room-${roomIndex}`, `Room ${roomIndex}`);
+  return createRoom(`room-${roomIndex}`, `Room ${roomIndex}`, { map: mapData });
 });
+rooms.push(
+  createRoom(TRAINING_ROOM_ID, TRAINING_ROOM_NAME, {
+    map: trainingMapData,
+    fixedMode: 'ffa',
+    minPlayers: 1,
+    trainingTargets: TRAINING_TARGETS,
+    throwableLoadout: {
+      explosiveGrenades: 5,
+      grenades: 5,
+      smokeGrenades: 5,
+    },
+  })
+);
 const roomsById = new Map(rooms.map((room) => [room.id, room]));
+
+function cleanupConnection(connection: ConnectionState) {
+  let roomChanged = false;
+  if (connection.roomId && connection.playerId) {
+    roomsById.get(connection.roomId)?.leave(connection.playerId);
+    connection.playerId = null;
+    connection.roomId = null;
+    roomChanged = true;
+  }
+  if (connections.delete(connection) || roomChanged) {
+    broadcastRoomList();
+  }
+}
 
 function buildRoomListPayload() {
   return {
@@ -1565,8 +2082,24 @@ setInterval(() => {
   broadcastRoomList();
 }, ROOM_LIST_INTERVAL_MS);
 
+setInterval(() => {
+  const now = Date.now();
+  for (const connection of Array.from(connections)) {
+    if (now - connection.lastHeardAt <= CLIENT_HEARTBEAT_TIMEOUT_MS) {
+      continue;
+    }
+    cleanupConnection(connection);
+    if (
+      connection.ws.readyState === WebSocket.OPEN ||
+      connection.ws.readyState === WebSocket.CONNECTING
+    ) {
+      connection.ws.terminate();
+    }
+  }
+}, CLIENT_HEARTBEAT_SWEEP_MS);
+
 wss.on('connection', (ws: WebSocket) => {
-  const connection: ConnectionState = { ws, playerId: null, roomId: null };
+  const connection: ConnectionState = { ws, playerId: null, roomId: null, lastHeardAt: Date.now() };
   connections.add(connection);
   sendJson(ws, buildRoomListPayload());
 
@@ -1575,6 +2108,13 @@ wss.on('connection', (ws: WebSocket) => {
     try {
       message = JSON.parse(raw.toString()) as ClientMessage;
     } catch {
+      return;
+    }
+
+    connection.lastHeardAt = Date.now();
+
+    if (message.type === 'ping') {
+      sendJson(ws, { type: 'pong' });
       return;
     }
 
@@ -1629,15 +2169,16 @@ wss.on('connection', (ws: WebSocket) => {
 
     if (message.type === 'buy') {
       room.handleBuy(connection.playerId, message.primary);
+      return;
+    }
+
+    if (message.type === 'place_shit') {
+      room.handlePlaceShit(connection.playerId);
     }
   });
 
   ws.on('close', () => {
-    if (connection.roomId && connection.playerId) {
-      roomsById.get(connection.roomId)?.leave(connection.playerId);
-    }
-    connections.delete(connection);
-    broadcastRoomList();
+    cleanupConnection(connection);
   });
 });
 

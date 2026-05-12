@@ -1,16 +1,20 @@
 /// <reference types="vite/client" />
 import * as THREE from 'three';
 import type {
+  GrenadePoolSnapshot,
   GrenadeSnapshot,
   InputPayload,
   LobbyErrorMessage,
   MapData,
   ModelDef,
+  PlacedModelSnapshot,
   PlayerSnapshot,
   RoomListMessage,
   RoomSummary,
   ServerMessage,
   ServerSnapshot,
+  SmokeCloudSnapshot,
+  TrainingTargetSnapshot,
   Vec3,
 } from '../../shared/src/types';
 import type { Side, WeaponSlot, WeaponType } from '../../shared/src/constants';
@@ -20,9 +24,11 @@ import {
   EYE_HEIGHT,
   FREEZE_TIME,
   GRENADE_CONFIG,
+  GRENADE_POOL_CONFIG,
   PLAYER_RADIUS,
   PLAYER_HEIGHT,
   ROUND_TIME,
+  SMOKE_GRENADE_CONFIG,
   TOTAL_ROUNDS,
   WEAPON_CONFIG,
 } from '../../shared/src/constants';
@@ -35,9 +41,20 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 
 const BASE_FOV = 75;
 const SNIPER_SCOPE_FOV = 12;
-const RIFLE_SCOPE_FOV = 60;
+const AUG_SCOPE_FOV = 38;
 const WORLD_LAYER = 0;
 const VIEW_WEAPON_LAYER = 1;
+const AUG_MODEL_PATH = '/aug.glb';
+const REVA_GRENADE_MODEL_PATH = '/reva.glb';
+const ACID_GRENADE_MODEL_PATH = '/grandLu.glb';
+const SMOKE_GRENADE_MODEL_PATH = '/grandlamby.glb';
+const TRAINING_ROOM_ID = 'training-room';
+const SOCKET_HEARTBEAT_INTERVAL_MS = 3000;
+const SOCKET_HEARTBEAT_TIMEOUT_MS = 15000;
+const AUDIO_MASTER_VOLUME = 0.52;
+const AUDIO_MAX_DISTANCE = 34;
+const FOOTSTEP_MAX_DISTANCE = 18;
+const FOOTSTEP_SPEED_THRESHOLD = 1.2;
 
 const colliderParam = new URL(window.location.href).searchParams.get('colliders')?.toLowerCase() ?? '';
 const showColliderModels = colliderParam === '1' || colliderParam === 'true' || colliderParam === 'all';
@@ -123,8 +140,11 @@ ktx2Loader.detectSupport(renderer);
 gltfLoader.setKTX2Loader(ktx2Loader);
 gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x1c1f22, 0.6));
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x1c1f22, 0.6);
+hemiLight.layers.enable(VIEW_WEAPON_LAYER);
+scene.add(hemiLight);
 const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.layers.enable(VIEW_WEAPON_LAYER);
 dirLight.position.set(10, 20, 5);
 scene.add(dirLight);
 
@@ -171,21 +191,23 @@ const faceTextureLoadPromises = new Map<string, Promise<THREE.Texture>>();
 const PITCH_LIMIT = 1.5;
 const RECOIL_RETURN_SPEED = 14;
 const RECOIL_MAX = 0.35;
-const RECOIL_KICK: Record<'rifle' | 'sniper' | 'shotgun' | 'pistol', number> = {
+const RECOIL_KICK: Record<'rifle' | 'sniper' | 'shotgun' | 'aug' | 'pistol', number> = {
   rifle: 0.04,
   sniper: 0.1,
   shotgun: 0.08,
+  aug: 0.03,
   pistol: 0.03,
 };
 
 type WeaponViewConfig = {
-  path: string;
+  path?: string;
+  generated?: 'smoke';
   pos: Vec3;
   rot: Vec3;
   scale: number | Vec3;
 };
 
-type ViewWeaponType = WeaponType | 'pistol';
+type ViewWeaponType = WeaponType | 'pistol' | 'explosive' | 'grenade' | 'smoke';
 type HeldWeaponConfig = {
   path: string;
   pos: Vec3;
@@ -199,6 +221,12 @@ const FIRST_PERSON_WEAPONS: Partial<Record<ViewWeaponType, WeaponViewConfig>> = 
     pos: [4.7, -0.6, 4.5],
     rot: [0, 1.6, 0],
     scale: 0.55,
+  },
+  aug: {
+    path: AUG_MODEL_PATH,
+    pos: [0.58, -0.5, -1.04],
+    rot: [0.08, Math.PI + 0.08, -0.12],
+    scale: 0.52,
   },
   pistol: {
     path: '/beretta.glb',
@@ -218,6 +246,24 @@ const FIRST_PERSON_WEAPONS: Partial<Record<ViewWeaponType, WeaponViewConfig>> = 
     rot: [0, 0, 0],
     scale: 0.58,
   },
+  explosive: {
+    path: REVA_GRENADE_MODEL_PATH,
+    pos: [0.48, -0.38, -0.74],
+    rot: [0.05, Math.PI * 2 - 0.3, -0.2],
+    scale: 0.42,
+  },
+  grenade: {
+    path: ACID_GRENADE_MODEL_PATH,
+    pos: [0.54, -0.42, -0.84],
+    rot: [0.05, Math.PI * 2 - 0.3, -0.2],
+    scale: 0.46,
+  },
+  smoke: {
+    path: SMOKE_GRENADE_MODEL_PATH,
+    pos: [0.5, -0.4, -0.78],
+    rot: [.05, Math.PI * 2 - 0.3, -0.2],
+    scale: 0.42,
+  },
 };
 
 const HELD_WEAPONS: Partial<Record<ViewWeaponType, HeldWeaponConfig>> = {
@@ -227,6 +273,12 @@ const HELD_WEAPONS: Partial<Record<ViewWeaponType, HeldWeaponConfig>> = {
   //   rot: [0, 1.6, 0],
   //   scale: 0.55,
   // },
+  aug: {
+    path: AUG_MODEL_PATH,
+    pos: [0.12, 1.08, -0.62],
+    rot: [0, Math.PI, -0.04],
+    scale: 0.5,
+  },
   pistol: {
     path: '/beretta.glb',
     pos: [0.52, 0.96, -0.12],
@@ -244,6 +296,24 @@ const HELD_WEAPONS: Partial<Record<ViewWeaponType, HeldWeaponConfig>> = {
     pos: [0, 1.1, -0.35],
     rot: [0, Math.PI, 0],
     scale: 0.58,
+  },
+  explosive: {
+    path: REVA_GRENADE_MODEL_PATH,
+    pos: [0.42, 1, -0.1],
+    rot: [0.14, Math.PI + 0.1, -0.36],
+    scale: 0.31,
+  },
+  grenade: {
+    path: ACID_GRENADE_MODEL_PATH,
+    pos: [0.38, 0.98, -0.08],
+    rot: [0.18, Math.PI + 0.2, -0.52],
+    scale: 0.32,
+  },
+  smoke: {
+    path: SMOKE_GRENADE_MODEL_PATH,
+    pos: [0.42, 1, -0.1],
+    rot: [0.16, Math.PI + 0.12, -0.46],
+    scale: 0.31,
   },
 };
 
@@ -267,6 +337,8 @@ let reconnectTimer: number | null = null;
 let roomSummaries: RoomSummary[] = [];
 let reconnectingRoomId: string | null = null;
 let ignoreNextSocketClose = false;
+let heartbeatTimer: number | null = null;
+let lastPongAt = 0;
 let sceneReadyForMatch = false;
 let activeTabCount = 1;
 
@@ -284,14 +356,24 @@ const localState = {
   weapon: 'primary' as WeaponSlot,
   primary: 'rifle' as WeaponType,
   ammo: { primary: 30, pistol: 12 },
+  explosiveGrenades: 1,
   grenades: 1,
+  smokeGrenades: 1,
   crouching: false,
   kills: 0,
   deaths: 0,
 };
 
 const playerMeshes = new Map<string, THREE.Group>();
-const grenadeMeshes = new Map<string, THREE.Mesh>();
+const trainingTargetMeshes = new Map<string, THREE.Group>();
+const grenadeMeshes = new Map<string, THREE.Object3D>();
+const pendingGrenadeModelIds = new Set<string>();
+const latestGrenades = new Map<string, GrenadeSnapshot>();
+const grenadePoolVisuals = new Map<string, GrenadePoolVisual>();
+const smokeCloudVisuals = new Map<string, SmokeCloudVisual>();
+const placedModelMeshes = new Map<string, THREE.Object3D>();
+const pendingPlacedModelIds = new Set<string>();
+const latestPlacedModels = new Map<string, PlacedModelSnapshot>();
 const decorCullList: Array<{ object: THREE.Object3D; center: THREE.Vector3; radius: number }> = [];
 const DECOR_CULL_DISTANCE = 55;
 const DECOR_CULL_INTERVAL = 200;
@@ -320,6 +402,15 @@ let viewWeaponRequest = 0;
 let weaponBobPhase = 0;
 let viewWeaponKick = 0;
 let lastViewWeaponShot = 0;
+const AudioContextCtor =
+  window.AudioContext ??
+  (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext ??
+  null;
+let audioContext: AudioContext | null = null;
+let audioMasterGain: GainNode | null = null;
+let audioNoiseBuffer: AudioBuffer | null = null;
+const remoteFootstepTimers = new Map<string, number>();
+let localFootstepNextAt = 0;
 
 
 type EditorSession = {
@@ -450,6 +541,23 @@ let hudUiHidden = false;
 
 type Tracer = { mesh: THREE.Line; expire: number };
 const tracers: Tracer[] = [];
+type GrenadePoolVisual = {
+  group: THREE.Group;
+  base: THREE.Mesh;
+  edge: THREE.Mesh;
+  sheen: THREE.Mesh;
+  blobs: THREE.Mesh[];
+  phases: number[];
+  life: number;
+  radius: number;
+};
+type SmokeCloudVisual = {
+  group: THREE.Group;
+  puffs: THREE.Mesh[];
+  phases: number[];
+  life: number;
+  radius: number;
+};
 type ExplosionEffect = {
   group: THREE.Group;
   flash: THREE.Mesh;
@@ -457,6 +565,21 @@ type ExplosionEffect = {
   smoke: THREE.Mesh;
   start: number;
   expire: number;
+};
+type AudioSpatialParams = {
+  gain: number;
+  pan: number;
+};
+type ShotSoundProfile = {
+  wave: OscillatorType;
+  startFreq: number;
+  endFreq: number;
+  duration: number;
+  bodyGain: number;
+  noiseGain: number;
+  noiseFreq: number;
+  noiseQ: number;
+  volume: number;
 };
 const explosionEffects: ExplosionEffect[] = [];
 type HumanoidParts = {
@@ -524,7 +647,7 @@ function getSelectedMode(): 'team' | 'ffa' {
 }
 
 function isRoomModeCompatible(room: RoomSummary): boolean {
-  return room.playerCount === 0 || room.mode === getSelectedMode();
+  return room.id === TRAINING_ROOM_ID || room.playerCount === 0 || room.mode === getSelectedMode();
 }
 
 function renderRoomList() {
@@ -624,6 +747,35 @@ function clearReconnect() {
   }
 }
 
+function stopHeartbeat() {
+  if (heartbeatTimer !== null) {
+    window.clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+  lastPongAt = performance.now();
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  socket.send(JSON.stringify({ type: 'ping' }));
+  heartbeatTimer = window.setInterval(() => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      stopHeartbeat();
+      return;
+    }
+    const now = performance.now();
+    if (now - lastPongAt > SOCKET_HEARTBEAT_TIMEOUT_MS) {
+      socket.close();
+      stopHeartbeat();
+      return;
+    }
+    socket.send(JSON.stringify({ type: 'ping' }));
+  }, SOCKET_HEARTBEAT_INTERVAL_MS);
+}
+
 function sendJoinRequest(roomId: string) {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
     joiningRoomId = roomId;
@@ -669,6 +821,8 @@ function ensureSocket() {
   updateJoinButtonState();
 
   socket.addEventListener('open', () => {
+    lastPongAt = performance.now();
+    startHeartbeat();
     roomConnection.textContent = 'Online';
     updateJoinButtonState();
     if (!inMatch && !joiningRoomId) {
@@ -681,6 +835,7 @@ function ensureSocket() {
   });
 
   socket.addEventListener('error', () => {
+    stopHeartbeat();
     roomConnection.textContent = 'Error';
     if (joiningRoomId) {
       hudStatus.textContent = 'Connection error.';
@@ -691,6 +846,10 @@ function ensureSocket() {
 
   socket.addEventListener('message', (event) => {
     const msg = JSON.parse(event.data) as ServerMessage;
+    if (msg.type === 'pong') {
+      lastPongAt = performance.now();
+      return;
+    }
     if (msg.type === 'room_list') {
       roomSummaries = (msg as RoomListMessage).rooms;
       if (!roomSummaries.some((room) => room.id === selectedRoomId)) {
@@ -749,6 +908,7 @@ function ensureSocket() {
   });
 
   socket.addEventListener('close', () => {
+    stopHeartbeat();
     const hadRoom = Boolean(currentRoomId || inMatch);
     const ignoredClose = ignoreNextSocketClose;
     ignoreNextSocketClose = false;
@@ -910,6 +1070,7 @@ buyMenu.querySelectorAll('button[data-primary]').forEach((btn) => {
 });
 
 renderer.domElement.addEventListener('click', () => {
+  primeAudio();
   if (buyOpen) {
     return;
   }
@@ -951,11 +1112,19 @@ document.addEventListener('mousemove', (event) => {
 });
 
 document.addEventListener('mousedown', (event) => {
+  primeAudio();
   if (event.button === 0) {
-    inputState.shoot = true;
+    if (currentWeapon === 'explosive' || currentWeapon === 'grenade' || currentWeapon === 'smoke') {
+      inputState.throwGrenade = true;
+    } else {
+      inputState.shoot = true;
+    }
   }
   if (event.button === 2) {
-    if (currentWeapon === 'primary' && localState.primary === 'sniper') {
+    if (
+      currentWeapon === 'primary' &&
+      (localState.primary === 'sniper' || localState.primary === 'aug')
+    ) {
       scopeHeld = !scopeHeld;
     }
   }
@@ -1010,6 +1179,7 @@ window.addEventListener('beforeunload', (event) => {
 });
 
 document.addEventListener('keydown', (event) => {
+  primeAudio();
   if (shouldBlockBrowserHotkeys() && isBlockedBrowserHotkey(event)) {
     event.preventDefault();
     event.stopPropagation();
@@ -1059,13 +1229,24 @@ document.addEventListener('keydown', (event) => {
       return;
     }
     if (event.code === 'Digit2') {
-      chooseBuy('sniper');
+      chooseBuy('aug');
       return;
     }
     if (event.code === 'Digit3') {
+      chooseBuy('sniper');
+      return;
+    }
+    if (event.code === 'Digit4') {
       chooseBuy('shotgun');
       return;
     }
+  }
+
+  if (event.code === 'KeyE' && !inEditor) {
+    if (!event.repeat) {
+      sendPlaceShit();
+    }
+    return;
   }
 
   pressedKeys.add(event.code);
@@ -1079,14 +1260,24 @@ document.addEventListener('keydown', (event) => {
     scopeHeld = false;
   }
   if (event.code === 'Digit3') {
+    currentWeapon = 'explosive';
+    scopeHeld = false;
+  }
+  if (event.code === 'Digit4') {
     currentWeapon = 'grenade';
+    scopeHeld = false;
+  }
+  if (event.code === 'Digit5') {
+    currentWeapon = 'smoke';
     scopeHeld = false;
   }
   if (event.code === 'KeyR') {
     inputState.reload = true;
   }
   if (event.code === 'KeyG') {
-    inputState.throwGrenade = true;
+    if (currentWeapon === 'explosive' || currentWeapon === 'grenade' || currentWeapon === 'smoke') {
+      inputState.throwGrenade = true;
+    }
   }
 });
 
@@ -1100,7 +1291,7 @@ function resetHud() {
   hudScore.textContent = 'A 0 - 0 B';
   hudHp.textContent = 'HP 100';
   hudAmmo.textContent = 'Ammo 0';
-  hudGrenades.textContent = 'Grenade 0';
+  hudGrenades.textContent = 'HE 0 | Grenade 0 | Smoke 0';
   if (hudKills) {
     hudKills.textContent = 'Kills 0';
   }
@@ -1286,15 +1477,26 @@ function showTeamMatchOverModal() {
 
 function clearMeshes() {
   mapLoadToken += 1;
+  resetMovementAudioState();
   for (const mesh of playerMeshes.values()) {
     scene.remove(mesh);
   }
   playerMeshes.clear();
+  for (const mesh of trainingTargetMeshes.values()) {
+    scene.remove(mesh);
+  }
+  trainingTargetMeshes.clear();
 
   for (const mesh of grenadeMeshes.values()) {
     scene.remove(mesh);
   }
   grenadeMeshes.clear();
+  pendingGrenadeModelIds.clear();
+  latestGrenades.clear();
+  clearPlacedModels();
+
+  clearGrenadePoolVisuals();
+  clearSmokeCloudVisuals();
 
   for (const tracer of tracers) {
     scene.remove(tracer.mesh);
@@ -1739,6 +1941,345 @@ function getModel(path: string): Promise<THREE.Group> {
   return promise;
 }
 
+void getModel(AUG_MODEL_PATH).catch(() => undefined);
+void getModel(REVA_GRENADE_MODEL_PATH).catch(() => undefined);
+void getModel(ACID_GRENADE_MODEL_PATH).catch(() => undefined);
+void getModel(SMOKE_GRENADE_MODEL_PATH).catch(() => undefined);
+
+function ensureAudioContext(): AudioContext | null {
+  if (!AudioContextCtor) {
+    return null;
+  }
+  if (!audioContext) {
+    audioContext = new AudioContextCtor();
+    audioMasterGain = audioContext.createGain();
+    audioMasterGain.gain.value = AUDIO_MASTER_VOLUME;
+    audioMasterGain.connect(audioContext.destination);
+    const noiseLength = Math.max(1, Math.floor(audioContext.sampleRate * 1.2));
+    audioNoiseBuffer = audioContext.createBuffer(1, noiseLength, audioContext.sampleRate);
+    const noiseData = audioNoiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i += 1) {
+      noiseData[i] = Math.random() * 2 - 1;
+    }
+  }
+  return audioContext;
+}
+
+function primeAudio() {
+  const ctx = ensureAudioContext();
+  if (!ctx || ctx.state === 'running') {
+    return;
+  }
+  void ctx.resume().catch(() => undefined);
+}
+
+function resetMovementAudioState() {
+  remoteFootstepTimers.clear();
+  localFootstepNextAt = 0;
+}
+
+function getSpatialAudio(pos: Vec3, baseVolume: number, maxDistance = AUDIO_MAX_DISTANCE): AudioSpatialParams | null {
+  const dx = pos[0] - camera.position.x;
+  const dy = pos[1] - camera.position.y;
+  const dz = pos[2] - camera.position.z;
+  const distance = Math.hypot(dx, dy * 0.6, dz);
+  if (distance > maxDistance) {
+    return null;
+  }
+  const right = dx * Math.cos(camera.rotation.y) - dz * Math.sin(camera.rotation.y);
+  const pan = clamp(right / Math.max(1.2, distance), -1, 1);
+  const attenuation = 1 / (1 + distance * 0.18 + distance * distance * 0.018);
+  return { gain: baseVolume * attenuation, pan };
+}
+
+function connectAudioOutput(ctx: AudioContext, gainValue: number, panValue: number): GainNode | null {
+  if (!audioMasterGain || gainValue <= 0.0001) {
+    return null;
+  }
+  const gain = ctx.createGain();
+  gain.gain.value = gainValue;
+  const panner = ctx.createStereoPanner();
+  panner.pan.value = panValue;
+  gain.connect(panner);
+  panner.connect(audioMasterGain);
+  return gain;
+}
+
+function createNoiseSource(ctx: AudioContext): AudioBufferSourceNode | null {
+  if (!audioNoiseBuffer) {
+    return null;
+  }
+  const source = ctx.createBufferSource();
+  source.buffer = audioNoiseBuffer;
+  source.loop = true;
+  return source;
+}
+
+function getShotSoundProfile(weapon: WeaponType | 'pistol'): ShotSoundProfile {
+  switch (weapon) {
+    case 'sniper':
+      return {
+        wave: 'triangle',
+        startFreq: 120,
+        endFreq: 38,
+        duration: 0.28,
+        bodyGain: 0.46,
+        noiseGain: 0.38,
+        noiseFreq: 460,
+        noiseQ: 0.55,
+        volume: 0.92,
+      };
+    case 'shotgun':
+      return {
+        wave: 'triangle',
+        startFreq: 180,
+        endFreq: 60,
+        duration: 0.2,
+        bodyGain: 0.36,
+        noiseGain: 0.3,
+        noiseFreq: 720,
+        noiseQ: 0.8,
+        volume: 0.82,
+      };
+    case 'rifle':
+      return {
+        wave: 'square',
+        startFreq: 240,
+        endFreq: 95,
+        duration: 0.11,
+        bodyGain: 0.18,
+        noiseGain: 0.24,
+        noiseFreq: 1550,
+        noiseQ: 1.2,
+        volume: 0.58,
+      };
+    case 'aug':
+      return {
+        wave: 'square',
+        startFreq: 210,
+        endFreq: 88,
+        duration: 0.1,
+        bodyGain: 0.16,
+        noiseGain: 0.21,
+        noiseFreq: 1350,
+        noiseQ: 1.1,
+        volume: 0.54,
+      };
+    case 'pistol':
+      return {
+        wave: 'square',
+        startFreq: 320,
+        endFreq: 120,
+        duration: 0.08,
+        bodyGain: 0.14,
+        noiseGain: 0.17,
+        noiseFreq: 1800,
+        noiseQ: 1.6,
+        volume: 0.42,
+      };
+  }
+}
+
+function playShotSound(origin: Vec3, weapon: WeaponType | 'pistol', centered = false) {
+  const ctx = ensureAudioContext();
+  if (!ctx || !audioMasterGain || ctx.state !== 'running') {
+    return;
+  }
+  const profile = getShotSoundProfile(weapon);
+  const spatial = centered ? { gain: profile.volume * 0.55, pan: 0 } : getSpatialAudio(origin, profile.volume, AUDIO_MAX_DISTANCE);
+  if (!spatial) {
+    return;
+  }
+  const output = connectAudioOutput(ctx, spatial.gain, spatial.pan);
+  if (!output) {
+    return;
+  }
+  const start = ctx.currentTime;
+
+  const osc = ctx.createOscillator();
+  osc.type = profile.wave;
+  osc.frequency.setValueAtTime(profile.startFreq, start);
+  osc.frequency.exponentialRampToValueAtTime(profile.endFreq, start + profile.duration);
+  const toneFilter = ctx.createBiquadFilter();
+  toneFilter.type = 'lowpass';
+  toneFilter.frequency.setValueAtTime(Math.max(180, profile.startFreq * 4.5), start);
+  toneFilter.Q.value = 0.35;
+  const toneGain = ctx.createGain();
+  toneGain.gain.setValueAtTime(profile.bodyGain, start);
+  toneGain.gain.exponentialRampToValueAtTime(0.0001, start + profile.duration);
+  osc.connect(toneFilter);
+  toneFilter.connect(toneGain);
+  toneGain.connect(output);
+  osc.start(start);
+  osc.stop(start + profile.duration + 0.03);
+
+  const noise = createNoiseSource(ctx);
+  if (noise) {
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = profile.noiseFreq;
+    noiseFilter.Q.value = profile.noiseQ;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(profile.noiseGain, start);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, start + profile.duration * 1.35);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(output);
+    noise.start(start);
+    noise.stop(start + profile.duration * 1.45);
+  }
+
+  window.setTimeout(() => output.disconnect(), 400);
+}
+
+function playGrenadeExplosionSound(pos: Vec3, kind: 'explosive' | 'acid' | 'smoke', centered = false) {
+  const ctx = ensureAudioContext();
+  if (!ctx || !audioMasterGain || ctx.state !== 'running') {
+    return;
+  }
+  const baseVolume = kind === 'smoke' ? 0.64 : kind === 'explosive' ? 0.86 : 0.78;
+  const spatial = centered ? { gain: baseVolume * 0.65, pan: 0 } : getSpatialAudio(pos, baseVolume, AUDIO_MAX_DISTANCE + 6);
+  if (!spatial) {
+    return;
+  }
+  const output = connectAudioOutput(ctx, spatial.gain, spatial.pan);
+  if (!output) {
+    return;
+  }
+  const start = ctx.currentTime;
+
+  const thump = ctx.createOscillator();
+  thump.type = kind === 'smoke' ? 'triangle' : 'sawtooth';
+  thump.frequency.setValueAtTime(kind === 'smoke' ? 92 : kind === 'explosive' ? 72 : 78, start);
+  thump.frequency.exponentialRampToValueAtTime(kind === 'smoke' ? 28 : kind === 'explosive' ? 20 : 24, start + 0.34);
+  const thumpGain = ctx.createGain();
+  thumpGain.gain.setValueAtTime(kind === 'smoke' ? 0.22 : kind === 'explosive' ? 0.34 : 0.28, start);
+  thumpGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.34);
+  thump.connect(thumpGain);
+  thumpGain.connect(output);
+  thump.start(start);
+  thump.stop(start + 0.36);
+
+  const noise = createNoiseSource(ctx);
+  if (noise) {
+    const blastFilter = ctx.createBiquadFilter();
+    blastFilter.type = kind === 'smoke' ? 'lowpass' : 'bandpass';
+    blastFilter.frequency.value = kind === 'smoke' ? 820 : kind === 'explosive' ? 1180 : 1280;
+    blastFilter.Q.value = kind === 'smoke' ? 0.3 : kind === 'explosive' ? 0.52 : 0.65;
+    const blastGain = ctx.createGain();
+    blastGain.gain.setValueAtTime(kind === 'smoke' ? 0.26 : kind === 'explosive' ? 0.42 : 0.34, start);
+    blastGain.gain.exponentialRampToValueAtTime(0.0001, start + (kind === 'smoke' ? 0.5 : kind === 'explosive' ? 0.46 : 0.42));
+    noise.connect(blastFilter);
+    blastFilter.connect(blastGain);
+    blastGain.connect(output);
+    noise.start(start);
+    noise.stop(start + 0.55);
+  }
+
+  window.setTimeout(() => output.disconnect(), 650);
+}
+
+function getFootstepInterval(speed: number, crouching: boolean): number {
+  const speedFactor = clamp((speed - FOOTSTEP_SPEED_THRESHOLD) / 3.4, 0, 1);
+  const slow = crouching ? 0.56 : 0.44;
+  const fast = crouching ? 0.36 : 0.28;
+  return lerp(slow, fast, speedFactor);
+}
+
+function playFootstepSound(pos: Vec3, centered: boolean, crouching: boolean, speed: number) {
+  const ctx = ensureAudioContext();
+  if (!ctx || !audioMasterGain || ctx.state !== 'running') {
+    return;
+  }
+  const speedFactor = clamp((speed - FOOTSTEP_SPEED_THRESHOLD) / 3.2, 0, 1);
+  const baseVolume = centered ? 0.13 + speedFactor * 0.04 : (crouching ? 0.16 : 0.22) * (0.75 + speedFactor * 0.35);
+  const spatial = centered ? { gain: baseVolume, pan: 0 } : getSpatialAudio(pos, baseVolume, FOOTSTEP_MAX_DISTANCE);
+  if (!spatial) {
+    return;
+  }
+  const output = connectAudioOutput(ctx, spatial.gain, spatial.pan);
+  if (!output) {
+    return;
+  }
+  const start = ctx.currentTime;
+
+  const thump = ctx.createOscillator();
+  thump.type = 'triangle';
+  thump.frequency.setValueAtTime(crouching ? 92 : 108, start);
+  thump.frequency.exponentialRampToValueAtTime(crouching ? 54 : 62, start + 0.07);
+  const thumpGain = ctx.createGain();
+  thumpGain.gain.setValueAtTime(crouching ? 0.045 : 0.07, start);
+  thumpGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.08);
+  thump.connect(thumpGain);
+  thumpGain.connect(output);
+  thump.start(start);
+  thump.stop(start + 0.09);
+
+  const noise = createNoiseSource(ctx);
+  if (noise) {
+    const textureFilter = ctx.createBiquadFilter();
+    textureFilter.type = 'bandpass';
+    textureFilter.frequency.value = crouching ? 380 : 520;
+    textureFilter.Q.value = 0.7;
+    const textureGain = ctx.createGain();
+    textureGain.gain.setValueAtTime(crouching ? 0.04 : 0.065, start);
+    textureGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.075);
+    noise.connect(textureFilter);
+    textureFilter.connect(textureGain);
+    textureGain.connect(output);
+    noise.start(start);
+    noise.stop(start + 0.09);
+  }
+
+  window.setTimeout(() => output.disconnect(), 180);
+}
+
+function updateMovementAudio(nowSeconds: number, renderTime: number) {
+  if (!inMatch || inEditor || !latestSnapshot) {
+    resetMovementAudioState();
+    return;
+  }
+
+  const localSpeed = Math.hypot(localState.vel[0], localState.vel[2]);
+  if (localState.alive && localState.onGround && localSpeed > FOOTSTEP_SPEED_THRESHOLD) {
+    if (nowSeconds >= localFootstepNextAt) {
+      playFootstepSound(localState.pos, true, localState.crouching, localSpeed);
+      localFootstepNextAt = nowSeconds + getFootstepInterval(localSpeed, localState.crouching);
+    }
+  } else {
+    localFootstepNextAt = nowSeconds + 0.05;
+  }
+
+  const activeIds = new Set<string>();
+  for (const id of playerMeshes.keys()) {
+    if (id === clientId) {
+      continue;
+    }
+    const sample = samplePlayer(id, renderTime);
+    if (!sample?.alive) {
+      continue;
+    }
+    activeIds.add(id);
+    const speed = Math.hypot(sample.vel[0], sample.vel[2]);
+    const grounded = Math.abs(sample.vel[1]) < 1.2;
+    if (speed <= FOOTSTEP_SPEED_THRESHOLD || !grounded) {
+      remoteFootstepTimers.set(id, nowSeconds + 0.08);
+      continue;
+    }
+    const nextAt = remoteFootstepTimers.get(id) ?? nowSeconds + ((id.charCodeAt(0) % 5) * 0.03);
+    if (nowSeconds >= nextAt) {
+      playFootstepSound(sample.pos, false, sample.crouching, speed);
+      remoteFootstepTimers.set(id, nowSeconds + getFootstepInterval(speed, sample.crouching));
+    }
+  }
+
+  for (const id of Array.from(remoteFootstepTimers.keys())) {
+    if (!activeIds.has(id)) {
+      remoteFootstepTimers.delete(id);
+    }
+  }
+}
+
 function getFaceTexture(url: string): THREE.Texture {
   let tex = faceTextureCache.get(url);
   if (!tex) {
@@ -1875,12 +2416,89 @@ function getSingleMeshForInstancing(prefab: THREE.Group): THREE.Mesh | null {
   return singleMesh;
 }
 
+function createThrowableViewFallback(kind: 'explosive' | 'acid' | 'smoke'): THREE.Group {
+  const group = new THREE.Group();
+  const bodyColor = kind === 'smoke' ? 0x68717b : kind === 'explosive' ? 0x6d7b4f : 0xf1f2f3;
+  const bodyMaterial = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.74, metalness: 0.18 });
+  const metalMaterial = new THREE.MeshStandardMaterial({ color: 0x69727a, roughness: 0.36, metalness: 0.86 });
+  const pinMaterial = new THREE.MeshStandardMaterial({ color: 0xd1d7df, roughness: 0.24, metalness: 0.92 });
+
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 18), bodyMaterial);
+  body.scale.set(0.78, 0.92, 0.78);
+  group.add(body);
+
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.08, 10, 24), metalMaterial);
+  band.rotation.x = Math.PI / 2;
+  band.position.y = 0.04;
+  group.add(band);
+
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.32, 18), metalMaterial);
+  cap.position.y = 0.82;
+  group.add(cap);
+
+  const lever = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.76, 0.08), metalMaterial);
+  lever.position.set(0.38, 0.72, 0);
+  lever.rotation.z = -0.42;
+  lever.rotation.x = 0.12;
+  group.add(lever);
+
+  const pin = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.028, 8, 16), pinMaterial);
+  pin.position.set(0.64, 0.96, 0);
+  pin.rotation.y = Math.PI / 2;
+  group.add(pin);
+
+  return group;
+}
+
+const explosiveGrenadeViewFallback = createThrowableViewFallback('explosive');
+const acidGrenadeViewFallback = createThrowableViewFallback('acid');
+const smokeGrenadeViewFallback = createThrowableViewFallback('smoke');
+
+function clearViewWeaponGroup() {
+  viewWeaponGroup.clear();
+}
+
+function mountViewWeaponInstance(instance: THREE.Group, config: WeaponViewConfig) {
+  const box = new THREE.Box3().setFromObject(instance);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  const targetHeight = 1;
+  const baseScale = size.y > 0 ? targetHeight / size.y : 1;
+  const scaleVec = new THREE.Vector3();
+  if (typeof config.scale === 'number') {
+    scaleVec.setScalar(baseScale * config.scale);
+  } else {
+    scaleVec.set(baseScale * config.scale[0], baseScale * config.scale[1], baseScale * config.scale[2]);
+  }
+  instance.scale.copy(scaleVec);
+  instance.position.set(
+    config.pos[0] - center.x * scaleVec.x,
+    config.pos[1] - center.y * scaleVec.y,
+    config.pos[2] - center.z * scaleVec.z
+  );
+  instance.rotation.set(config.rot[0], config.rot[1], config.rot[2]);
+  instance.traverse((child) => {
+    child.castShadow = false;
+    child.receiveShadow = false;
+    const mesh = child as THREE.Mesh;
+    if (mesh.isMesh) {
+      mesh.layers.set(VIEW_WEAPON_LAYER);
+      mesh.renderOrder = 1000;
+      mesh.frustumCulled = false;
+    }
+  });
+  instance.layers.set(VIEW_WEAPON_LAYER);
+  viewWeaponGroup.add(instance);
+}
+
 function setViewWeapon(type: ViewWeaponType | null) {
   if (viewWeaponType === type) {
     return;
   }
   viewWeaponType = type;
-  viewWeaponGroup.clear();
+  clearViewWeaponGroup();
   if (!type) {
     return;
   }
@@ -1888,64 +2506,27 @@ function setViewWeapon(type: ViewWeaponType | null) {
   if (!config) {
     return;
   }
+  if (!config.path) {
+    return;
+  }
   const requestId = ++viewWeaponRequest;
+  if (type === 'grenade') {
+    mountViewWeaponInstance(acidGrenadeViewFallback.clone(true), config);
+  }
+  if (type === 'explosive') {
+    mountViewWeaponInstance(explosiveGrenadeViewFallback.clone(true), config);
+  }
+  if (type === 'smoke') {
+    mountViewWeaponInstance(smokeGrenadeViewFallback.clone(true), config);
+  }
   getModel(config.path)
     .then((prefab) => {
       if (viewWeaponType !== type || viewWeaponRequest !== requestId) {
         return;
       }
-      const instance = prefab.clone(true);
-      const box = new THREE.Box3().setFromObject(instance);
-      const size = new THREE.Vector3();
-      const center = new THREE.Vector3();
-      box.getSize(size);
-      box.getCenter(center);
-      const targetHeight = 1;
-      const baseScale = size.y > 0 ? targetHeight / size.y : 1;
-      const scaleVec = new THREE.Vector3();
-      if (typeof config.scale === 'number') {
-        scaleVec.setScalar(baseScale * config.scale);
-      } else {
-        scaleVec.set(
-          baseScale * config.scale[0],
-          baseScale * config.scale[1],
-          baseScale * config.scale[2]
-        );
-      }
-      instance.scale.copy(scaleVec);
-      instance.position.set(
-        config.pos[0] - center.x * scaleVec.x,
-        config.pos[1] - center.y * scaleVec.y,
-        config.pos[2] - center.z * scaleVec.z
-      );
-      instance.rotation.set(config.rot[0], config.rot[1], config.rot[2]);
-      instance.updateMatrixWorld(true);
-      const localBox = new THREE.Box3().setFromObject(instance);
-      const inverse = new THREE.Matrix4().copy(instance.matrixWorld).invert();
-      localBox.applyMatrix4(inverse);
-      const hitSize = new THREE.Vector3();
-      const hitCenter = new THREE.Vector3();
-      localBox.getSize(hitSize);
-      localBox.getCenter(hitCenter);
-      const drawHitbox = hitSize.lengthSq() > 0;
-        instance.traverse((child) => {
-          child.castShadow = false;
-          child.receiveShadow = false;
-          const mesh = child as THREE.Mesh;
-          if (mesh.isMesh) {
-            mesh.layers.set(VIEW_WEAPON_LAYER);
-            mesh.renderOrder = 1000;
-            mesh.frustumCulled = false;
-            const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-            for (const material of materials) {
-              material.depthTest = false;
-              material.depthWrite = true;
-            }
-          }
-        });
-        instance.layers.set(VIEW_WEAPON_LAYER);
-        viewWeaponGroup.add(instance);
-      })
+      clearViewWeaponGroup();
+      mountViewWeaponInstance(prefab.clone(true), config);
+    })
     .catch((err) => console.warn('Failed to load view weapon', config.path, err));
 }
 
@@ -2054,6 +2635,21 @@ function sendBuy(primary: WeaponType) {
   hudStatus.textContent = `Purchased: ${primary}`;
 }
 
+function sendPlaceShit() {
+  if (
+    !socket ||
+    socket.readyState !== WebSocket.OPEN ||
+    inEditor ||
+    !inMatch ||
+    !localState.alive ||
+    buyOpen ||
+    isAnyModalOpen()
+  ) {
+    return;
+  }
+  socket.send(JSON.stringify({ type: 'place_shit' }));
+}
+
 function chooseBuy(primary: WeaponType) {
   sendBuy(primary);
   localState.primary = primary;
@@ -2074,6 +2670,7 @@ function resetLocalState() {
   pendingInputs.length = 0;
   pressedKeys.clear();
   playerFaces.clear();
+  resetMovementAudioState();
 
   inputState.forward = 0;
   inputState.strafe = 0;
@@ -2092,7 +2689,9 @@ function resetLocalState() {
   localState.primary = 'rifle';
   localState.ammo.primary = WEAPON_CONFIG[localState.primary].magSize;
   localState.ammo.pistol = WEAPON_CONFIG.pistol.magSize;
+  localState.explosiveGrenades = 1;
   localState.grenades = 1;
+  localState.smokeGrenades = 1;
   localState.crouching = false;
   localState.kills = 0;
   localState.deaths = 0;
@@ -2477,7 +3076,9 @@ function handleSnapshot(snapshot: ServerSnapshot) {
     localState.weapon = me.weapon;
     localState.primary = me.primary;
     localState.ammo = { ...me.ammo };
+    localState.explosiveGrenades = me.explosiveGrenades;
     localState.grenades = me.grenades;
+    localState.smokeGrenades = me.smokeGrenades;
     localState.crouching = me.crouching;
     localState.kills = me.kills ?? localState.kills;
     localState.deaths = me.deaths ?? localState.deaths;
@@ -2485,6 +3086,19 @@ function handleSnapshot(snapshot: ServerSnapshot) {
     localState.pos = [...me.pos];
     localState.vel = [...me.vel];
     localState.onGround = isOnGround(localState.pos, mapData);
+
+    if (currentWeapon === 'explosive' && localState.explosiveGrenades <= 0) {
+      currentWeapon = 'primary';
+      scopeHeld = false;
+    }
+    if (currentWeapon === 'grenade' && localState.grenades <= 0) {
+      currentWeapon = 'primary';
+      scopeHeld = false;
+    }
+    if (currentWeapon === 'smoke' && localState.smokeGrenades <= 0) {
+      currentWeapon = 'primary';
+      scopeHeld = false;
+    }
 
     const lastSeq = me.lastSeq;
     while (pendingInputs.length > 0 && pendingInputs[0].seq <= lastSeq) {
@@ -2511,7 +3125,11 @@ function handleSnapshot(snapshot: ServerSnapshot) {
   updateSpectateTarget(playerMap);
 
   updatePlayerMeshes(snapshot.players);
+  updateTrainingTargetMeshes(snapshot.trainingTargets);
   updateGrenadeMeshes(snapshot.grenades);
+  updatePlacedModels(snapshot.placedModels);
+  updateGrenadePoolVisuals(snapshot.grenadePools);
+  updateSmokeCloudVisuals(snapshot.smokeClouds);
   updateHud(snapshot);
   handleEvents(snapshot.events);
 }
@@ -2555,27 +3173,671 @@ function updatePlayerMeshes(players: PlayerSnapshot[]) {
   }
 }
 
-function updateGrenadeMeshes(grenades: GrenadeSnapshot[]) {
+function createTrainingTargetMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const silhouetteMat = new THREE.MeshStandardMaterial({
+    color: 0x080808,
+    roughness: 0.94,
+    metalness: 0.02,
+    emissive: 0x040404,
+  });
+
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.84, 0.16), silhouetteMat);
+  legs.position.set(0, 0.42, 0);
+  group.add(legs);
+
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.68, 1.04, 0.16), silhouetteMat);
+  torso.position.set(0, 1.02, 0);
+  group.add(torso);
+
+  const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.18, 0.16), silhouetteMat);
+  shoulders.position.set(0, 1.26, 0);
+  group.add(shoulders);
+
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.16), silhouetteMat);
+  head.position.set(0, 1.72, 0);
+  group.add(head);
+
+  return group;
+}
+
+function updateTrainingTargetMeshes(targets: TrainingTargetSnapshot[]) {
   const seen = new Set<string>();
-  for (const grenade of grenades) {
-    seen.add(grenade.id);
-    let mesh = grenadeMeshes.get(grenade.id);
+  for (const target of targets) {
+    seen.add(target.id);
+    let mesh = trainingTargetMeshes.get(target.id);
     if (!mesh) {
-      mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(0.2, 10, 10),
-        new THREE.MeshStandardMaterial({ color: 0x99aa00 })
-      );
+      mesh = createTrainingTargetMesh();
       scene.add(mesh);
-      grenadeMeshes.set(grenade.id, mesh);
+      trainingTargetMeshes.set(target.id, mesh);
     }
-    mesh.position.set(grenade.pos[0], grenade.pos[1], grenade.pos[2]);
+    mesh.position.set(target.pos[0], target.pos[1], target.pos[2]);
+    mesh.rotation.y = target.yaw;
+    mesh.visible = target.alive;
   }
 
-  for (const [id, mesh] of grenadeMeshes.entries()) {
+  for (const [id, mesh] of trainingTargetMeshes.entries()) {
     if (!seen.has(id)) {
       scene.remove(mesh);
-      grenadeMeshes.delete(id);
+      trainingTargetMeshes.delete(id);
     }
+  }
+}
+
+function updateGrenadeMeshes(grenades: GrenadeSnapshot[]) {
+  const seen = new Set<string>();
+  latestGrenades.clear();
+  for (const grenade of grenades) {
+    latestGrenades.set(grenade.id, grenade);
+  }
+  for (const grenade of grenades) {
+    seen.add(grenade.id);
+    let object = grenadeMeshes.get(grenade.id);
+    if (!object) {
+      object =
+        grenade.kind === 'smoke'
+          ? createSmokeGrenadeProjectile()
+          : grenade.kind === 'explosive'
+          ? createExplosiveGrenadeFallbackProjectile()
+          : createAcidGrenadeFallbackProjectile();
+      scene.add(object);
+      grenadeMeshes.set(grenade.id, object);
+    }
+    applyGrenadeProjectileTransform(object, grenade);
+    if (grenade.kind === 'explosive') {
+      ensureExplosiveGrenadeProjectile(grenade.id);
+    } else if (grenade.kind === 'acid') {
+      ensureAcidGrenadeProjectile(grenade.id);
+    } else {
+      ensureSmokeGrenadeProjectile(grenade.id);
+    }
+  }
+
+  for (const [id, object] of grenadeMeshes.entries()) {
+    if (!seen.has(id)) {
+      scene.remove(object);
+      grenadeMeshes.delete(id);
+      pendingGrenadeModelIds.delete(id);
+    }
+  }
+  for (const id of pendingGrenadeModelIds) {
+    if (!seen.has(id)) {
+      pendingGrenadeModelIds.delete(id);
+    }
+  }
+}
+
+function applyPlacedModelTransform(object: THREE.Object3D, model: PlacedModelSnapshot) {
+  object.position.set(model.pos[0], model.pos[1], model.pos[2]);
+  if (model.rot) {
+    object.rotation.set(model.rot[0], model.rot[1], model.rot[2]);
+  } else {
+    object.rotation.set(0, 0, 0);
+  }
+  object.scale.copy(getModelScaleVec(model.scale));
+  object.updateMatrixWorld(true);
+}
+
+function clearPlacedModels() {
+  for (const object of placedModelMeshes.values()) {
+    scene.remove(object);
+  }
+  placedModelMeshes.clear();
+  pendingPlacedModelIds.clear();
+  latestPlacedModels.clear();
+}
+
+function createSmokeGrenadeProjectile(): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 10, 10),
+    new THREE.MeshStandardMaterial({ color: 0x7b8792, roughness: 0.58, metalness: 0.12 })
+  );
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.userData.projectileKind = 'smoke-fallback';
+  return mesh;
+}
+
+function createExplosiveGrenadeFallbackProjectile(): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 10, 10),
+    new THREE.MeshStandardMaterial({ color: 0x74825a, roughness: 0.52, metalness: 0.12 })
+  );
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.userData.projectileKind = 'explosive-fallback';
+  return mesh;
+}
+
+function createAcidGrenadeFallbackProjectile(): THREE.Mesh {
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 10, 10),
+    new THREE.MeshStandardMaterial({ color: 0xe8eaeb, roughness: 0.42, metalness: 0.08 })
+  );
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.userData.projectileKind = 'acid-fallback';
+  return mesh;
+}
+
+function createAcidGrenadeProjectile(prefab: THREE.Group): THREE.Group {
+  const root = new THREE.Group();
+  const instance = prefab.clone(true);
+  const box = new THREE.Box3().setFromObject(instance);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  const targetHeight = 0.38;
+  const baseScale = size.y > 0 ? targetHeight / size.y : 1;
+  instance.scale.setScalar(baseScale);
+  instance.position.set(-center.x * baseScale, -center.y * baseScale, -center.z * baseScale);
+  instance.rotation.set(0.18, Math.PI + 0.24, -0.12);
+  instance.traverse((child) => {
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+  root.add(instance);
+  root.userData.projectileKind = 'acid-model';
+  return root;
+}
+
+function createSmokeGrenadeModelProjectile(prefab: THREE.Group): THREE.Group {
+  const root = new THREE.Group();
+  const instance = prefab.clone(true);
+  const box = new THREE.Box3().setFromObject(instance);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  const targetHeight = 0.36;
+  const baseScale = size.y > 0 ? targetHeight / size.y : 1;
+  instance.scale.setScalar(baseScale);
+  instance.position.set(-center.x * baseScale, -center.y * baseScale, -center.z * baseScale);
+  instance.rotation.set(0.14, Math.PI + 0.18, -0.08);
+  instance.traverse((child) => {
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+  root.add(instance);
+  root.userData.projectileKind = 'smoke-model';
+  return root;
+}
+
+function createExplosiveGrenadeProjectile(prefab: THREE.Group): THREE.Group {
+  const root = new THREE.Group();
+  const instance = prefab.clone(true);
+  const box = new THREE.Box3().setFromObject(instance);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  const targetHeight = 0.37;
+  const baseScale = size.y > 0 ? targetHeight / size.y : 1;
+  instance.scale.setScalar(baseScale);
+  instance.position.set(-center.x * baseScale, -center.y * baseScale, -center.z * baseScale);
+  instance.rotation.set(0.16, Math.PI + 0.16, -0.1);
+  instance.traverse((child) => {
+    child.castShadow = false;
+    child.receiveShadow = false;
+  });
+  root.add(instance);
+  root.userData.projectileKind = 'explosive-model';
+  return root;
+}
+
+function applyGrenadeProjectileTransform(object: THREE.Object3D, grenade: GrenadeSnapshot) {
+  object.position.set(grenade.pos[0], grenade.pos[1], grenade.pos[2]);
+  const seed =
+    typeof object.userData.spinSeed === 'number'
+      ? object.userData.spinSeed
+      : Array.from(grenade.id).reduce((sum, char) => sum + char.charCodeAt(0), 0) * 0.013;
+  object.userData.spinSeed = seed;
+  if (grenade.kind === 'smoke') {
+    const spin = performance.now() * 0.0048 + seed;
+    object.rotation.set(spin * 1.25, spin * 1.05, spin * 1.16);
+    return;
+  }
+  if (grenade.kind === 'explosive') {
+    const spin = performance.now() * 0.0052 + seed;
+    object.rotation.set(spin * 1.35, spin * 1.12, spin * 1.2);
+    return;
+  }
+  const spin = performance.now() * 0.006 + seed;
+  object.rotation.set(spin * 1.7, spin * 1.2, spin * 1.45);
+}
+
+function ensureExplosiveGrenadeProjectile(id: string) {
+  const existing = grenadeMeshes.get(id);
+  if (existing?.userData.projectileKind === 'explosive-model' || pendingGrenadeModelIds.has(id)) {
+    return;
+  }
+  pendingGrenadeModelIds.add(id);
+  getModel(REVA_GRENADE_MODEL_PATH)
+    .then((prefab) => {
+      pendingGrenadeModelIds.delete(id);
+      const grenade = latestGrenades.get(id);
+      if (!grenade || grenade.kind !== 'explosive') {
+        return;
+      }
+      const current = grenadeMeshes.get(id);
+      if (current?.userData.projectileKind === 'explosive-model') {
+        applyGrenadeProjectileTransform(current, grenade);
+        return;
+      }
+      const object = createExplosiveGrenadeProjectile(prefab);
+      if (current) {
+        scene.remove(current);
+      }
+      applyGrenadeProjectileTransform(object, grenade);
+      grenadeMeshes.set(id, object);
+      scene.add(object);
+    })
+    .catch((err) => {
+      pendingGrenadeModelIds.delete(id);
+      console.warn('Failed to load explosive grenade model', REVA_GRENADE_MODEL_PATH, err);
+    });
+}
+
+function ensureAcidGrenadeProjectile(id: string) {
+  const existing = grenadeMeshes.get(id);
+  if (existing?.userData.projectileKind === 'acid-model' || pendingGrenadeModelIds.has(id)) {
+    return;
+  }
+  pendingGrenadeModelIds.add(id);
+  getModel(ACID_GRENADE_MODEL_PATH)
+    .then((prefab) => {
+      pendingGrenadeModelIds.delete(id);
+      const grenade = latestGrenades.get(id);
+      if (!grenade || grenade.kind !== 'acid') {
+        return;
+      }
+      const current = grenadeMeshes.get(id);
+      if (current?.userData.projectileKind === 'acid-model') {
+        applyGrenadeProjectileTransform(current, grenade);
+        return;
+      }
+      const object = createAcidGrenadeProjectile(prefab);
+      if (current) {
+        scene.remove(current);
+      }
+      applyGrenadeProjectileTransform(object, grenade);
+      grenadeMeshes.set(id, object);
+      scene.add(object);
+    })
+    .catch((err) => {
+      pendingGrenadeModelIds.delete(id);
+      console.warn('Failed to load acid grenade model', ACID_GRENADE_MODEL_PATH, err);
+    });
+}
+
+function ensureSmokeGrenadeProjectile(id: string) {
+  const existing = grenadeMeshes.get(id);
+  if (existing?.userData.projectileKind === 'smoke-model' || pendingGrenadeModelIds.has(id)) {
+    return;
+  }
+  pendingGrenadeModelIds.add(id);
+  getModel(SMOKE_GRENADE_MODEL_PATH)
+    .then((prefab) => {
+      pendingGrenadeModelIds.delete(id);
+      const grenade = latestGrenades.get(id);
+      if (!grenade || grenade.kind !== 'smoke') {
+        return;
+      }
+      const current = grenadeMeshes.get(id);
+      if (current?.userData.projectileKind === 'smoke-model') {
+        applyGrenadeProjectileTransform(current, grenade);
+        return;
+      }
+      const object = createSmokeGrenadeModelProjectile(prefab);
+      if (current) {
+        scene.remove(current);
+      }
+      applyGrenadeProjectileTransform(object, grenade);
+      grenadeMeshes.set(id, object);
+      scene.add(object);
+    })
+    .catch((err) => {
+      pendingGrenadeModelIds.delete(id);
+      console.warn('Failed to load smoke grenade model', SMOKE_GRENADE_MODEL_PATH, err);
+    });
+}
+
+function updatePlacedModels(models: PlacedModelSnapshot[]) {
+  const seen = new Set<string>();
+  latestPlacedModels.clear();
+  for (const model of models) {
+    latestPlacedModels.set(model.id, model);
+  }
+  for (const model of models) {
+    seen.add(model.id);
+    const existing = placedModelMeshes.get(model.id);
+    if (existing) {
+      applyPlacedModelTransform(existing, model);
+      continue;
+    }
+    if (pendingPlacedModelIds.has(model.id)) {
+      continue;
+    }
+    pendingPlacedModelIds.add(model.id);
+    getModel(model.path)
+      .then((prefab) => {
+        pendingPlacedModelIds.delete(model.id);
+        const latest = latestPlacedModels.get(model.id);
+        if (!latest || placedModelMeshes.has(model.id)) {
+          return;
+        }
+        const instance = prefab.clone(true);
+        instance.traverse((child) => {
+          child.castShadow = false;
+          child.receiveShadow = false;
+        });
+        applyPlacedModelTransform(instance, latest);
+        scene.add(instance);
+        placedModelMeshes.set(model.id, instance);
+      })
+      .catch((err) => {
+        pendingPlacedModelIds.delete(model.id);
+        console.warn('Failed to load placed model', model.path, err);
+      });
+  }
+
+  for (const [id, object] of placedModelMeshes.entries()) {
+    if (!seen.has(id)) {
+      scene.remove(object);
+      placedModelMeshes.delete(id);
+    }
+  }
+}
+
+function disposeMesh(mesh: THREE.Mesh) {
+  mesh.geometry.dispose();
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  for (const material of materials) {
+    material.dispose();
+  }
+}
+
+function createGrenadePoolVisual(pool: GrenadePoolSnapshot): GrenadePoolVisual {
+  const group = new THREE.Group();
+  group.position.set(pool.pos[0], pool.pos[1], pool.pos[2]);
+
+  const base = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 40),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  base.rotation.x = -Math.PI / 2;
+  base.position.y = 0.018;
+  group.add(base);
+
+  const edge = new THREE.Mesh(
+    new THREE.RingGeometry(0.68, 1, 40),
+    new THREE.MeshBasicMaterial({
+      color: 0xf0f0f0,
+      transparent: true,
+      opacity: 0.1,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+  );
+  edge.rotation.x = -Math.PI / 2;
+  edge.position.y = 0.022;
+  group.add(edge);
+
+  const sheen = new THREE.Mesh(
+    new THREE.CircleGeometry(0.55, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.05,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    })
+  );
+  sheen.rotation.x = -Math.PI / 2;
+  sheen.position.set(0.16, 0.028, -0.1);
+  group.add(sheen);
+
+  const blobConfigs: Array<{ radius: number; x: number; z: number; y: number }> = [
+    { radius: 0.34, x: 0.42, z: 0.16, y: 0.016 },
+    { radius: 0.3, x: -0.38, z: 0.24, y: 0.017 },
+    { radius: 0.26, x: 0.08, z: -0.48, y: 0.015 },
+    { radius: 0.22, x: -0.24, z: -0.34, y: 0.014 },
+  ];
+  const blobs = blobConfigs.map((blobConfig) => {
+    const blob = new THREE.Mesh(
+      new THREE.CircleGeometry(blobConfig.radius, 18),
+      new THREE.MeshBasicMaterial({
+        color: 0xfafafa,
+        transparent: true,
+        opacity: 0.1,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    blob.rotation.x = -Math.PI / 2;
+    blob.position.set(blobConfig.x, blobConfig.y, blobConfig.z);
+    group.add(blob);
+    return blob;
+  });
+
+  scene.add(group);
+
+  const phaseSeed = [...pool.id].reduce((acc, char) => acc + char.charCodeAt(0), 0) * 0.013;
+
+  return {
+    group,
+    base,
+    edge,
+    sheen,
+    blobs,
+    phases: Array.from({ length: 6 }, (_, index) => phaseSeed + index * 1.17),
+    life: pool.life,
+    radius: pool.radius,
+  };
+}
+
+function disposeGrenadePoolVisual(visual: GrenadePoolVisual) {
+  scene.remove(visual.group);
+  disposeMesh(visual.base);
+  disposeMesh(visual.edge);
+  disposeMesh(visual.sheen);
+  for (const blob of visual.blobs) {
+    disposeMesh(blob);
+  }
+}
+
+function clearGrenadePoolVisuals() {
+  for (const visual of grenadePoolVisuals.values()) {
+    disposeGrenadePoolVisual(visual);
+  }
+  grenadePoolVisuals.clear();
+}
+
+function updateGrenadePoolStyle(visual: GrenadePoolVisual, now: number) {
+  const lifeT = clamp(visual.life / GRENADE_POOL_CONFIG.duration, 0, 1);
+  const spreadT = clamp(visual.radius / GRENADE_POOL_CONFIG.maxRadius, 0, 1);
+  const basePulse = 0.5 + 0.5 * Math.sin(now * 0.005 + visual.phases[0]);
+  const edgePulse = 0.5 + 0.5 * Math.sin(now * 0.0042 + visual.phases[1]);
+
+  const baseMaterial = visual.base.material as THREE.MeshBasicMaterial;
+  const edgeMaterial = visual.edge.material as THREE.MeshBasicMaterial;
+  const sheenMaterial = visual.sheen.material as THREE.MeshBasicMaterial;
+
+  baseMaterial.opacity = (0.1 + 0.12 * spreadT) * (0.35 + 0.65 * lifeT);
+  edgeMaterial.opacity = (0.05 + 0.08 * edgePulse) * lifeT;
+  sheenMaterial.opacity = (0.02 + 0.04 * basePulse) * lifeT;
+
+  visual.sheen.position.x = 0.12 + 0.05 * Math.sin(now * 0.0028 + visual.phases[2]);
+  visual.sheen.position.z = -0.08 + 0.04 * Math.cos(now * 0.0024 + visual.phases[3]);
+
+  for (let i = 0; i < visual.blobs.length; i += 1) {
+    const blob = visual.blobs[i];
+    const blobPulse = 0.92 + 0.11 * Math.sin(now * 0.0036 + visual.phases[i + 2]);
+    blob.scale.setScalar(blobPulse);
+    const blobMaterial = blob.material as THREE.MeshBasicMaterial;
+    blobMaterial.opacity = (0.04 + 0.05 * spreadT) * lifeT;
+  }
+}
+
+function updateGrenadePoolVisuals(pools: GrenadePoolSnapshot[]) {
+  const seen = new Set<string>();
+  const now = performance.now();
+  for (const pool of pools) {
+    seen.add(pool.id);
+    let visual = grenadePoolVisuals.get(pool.id);
+    if (!visual) {
+      visual = createGrenadePoolVisual(pool);
+      grenadePoolVisuals.set(pool.id, visual);
+    }
+    visual.life = pool.life;
+    visual.radius = pool.radius;
+    visual.group.position.set(pool.pos[0], pool.pos[1], pool.pos[2]);
+    const scale = Math.max(pool.radius, 0.001);
+    visual.group.scale.set(scale, 1, scale);
+    updateGrenadePoolStyle(visual, now);
+  }
+
+  for (const [id, visual] of grenadePoolVisuals.entries()) {
+    if (!seen.has(id)) {
+      disposeGrenadePoolVisual(visual);
+      grenadePoolVisuals.delete(id);
+    }
+  }
+}
+
+function animateGrenadePoolVisuals(now: number) {
+  for (const visual of grenadePoolVisuals.values()) {
+    updateGrenadePoolStyle(visual, now);
+  }
+}
+
+function createSmokeCloudVisual(cloud: SmokeCloudSnapshot): SmokeCloudVisual {
+  const group = new THREE.Group();
+  group.position.set(cloud.pos[0], cloud.pos[1], cloud.pos[2]);
+
+  const puffConfigs = [
+    { radius: 0.54, x: 0, y: 0.08, z: 0, alpha: 1.34, shade: 0xf5f7fa },
+    { radius: 0.48, x: 0.38, y: 0.07, z: 0.16, alpha: 1.18, shade: 0xe8ecf1 },
+    { radius: 0.47, x: -0.4, y: 0.09, z: 0.18, alpha: 1.16, shade: 0xe4e8ed },
+    { radius: 0.45, x: 0.2, y: 0.15, z: -0.32, alpha: 1.08, shade: 0xdbe0e6 },
+    { radius: 0.43, x: -0.18, y: 0.17, z: -0.3, alpha: 1.06, shade: 0xd8dde3 },
+    { radius: 0.41, x: 0.02, y: 0.26, z: 0.3, alpha: 1.04, shade: 0xe9edf1 },
+    { radius: 0.4, x: 0.14, y: 0.3, z: -0.04, alpha: 1.02, shade: 0xecf0f3 },
+    { radius: 0.39, x: -0.12, y: 0.29, z: 0.07, alpha: 1.0, shade: 0xe8ebef },
+    { radius: 0.38, x: 0.12, y: 0.05, z: 0.04, alpha: 1.18, shade: 0xf1f4f7 },
+    { radius: 0.36, x: -0.14, y: 0.05, z: -0.04, alpha: 1.14, shade: 0xebeff3 },
+    { radius: 0.34, x: 0.04, y: 0.18, z: 0.14, alpha: 1.1, shade: 0xeef2f5 },
+    { radius: 0.34, x: -0.02, y: 0.17, z: -0.16, alpha: 1.08, shade: 0xe7ecf1 },
+    { radius: 0.32, x: 0.56, y: 0.18, z: -0.12, alpha: 0.94, shade: 0xd6dbe2 },
+    { radius: 0.32, x: -0.56, y: 0.17, z: -0.1, alpha: 0.94, shade: 0xd4d9df },
+    { radius: 0.3, x: 0.24, y: 0.02, z: 0.44, alpha: 0.92, shade: 0xe2e7ec },
+    { radius: 0.3, x: -0.28, y: 0.02, z: 0.42, alpha: 0.92, shade: 0xe0e5ea },
+    { radius: 0.28, x: 0.06, y: 0.24, z: -0.48, alpha: 0.88, shade: 0xd9dee4 },
+    { radius: 0.28, x: -0.1, y: 0.23, z: -0.46, alpha: 0.88, shade: 0xd6dbe1 },
+    { radius: 0.27, x: 0.52, y: 0.04, z: 0.22, alpha: 0.86, shade: 0xe1e6eb },
+    { radius: 0.27, x: -0.5, y: 0.04, z: 0.24, alpha: 0.86, shade: 0xdfe4e9 },
+    { radius: 0.24, x: 0.02, y: 0.38, z: 0.16, alpha: 0.84, shade: 0xf0f3f6 },
+    { radius: 0.24, x: -0.06, y: 0.4, z: -0.08, alpha: 0.82, shade: 0xebeff3 },
+  ];
+
+  const puffs = puffConfigs.map((config, index) => {
+    const puff = new THREE.Mesh(
+      new THREE.SphereGeometry(config.radius, 18, 14),
+      new THREE.MeshBasicMaterial({
+        color: config.shade,
+        transparent: true,
+        opacity: 0.36,
+        depthWrite: false,
+      })
+    );
+    puff.position.set(config.x, config.y, config.z);
+    puff.userData.basePos = puff.position.clone();
+    puff.userData.alpha = config.alpha;
+    puff.userData.phaseOffset = index * 0.07;
+    group.add(puff);
+    return puff;
+  });
+
+  scene.add(group);
+
+  const phaseSeed = [...cloud.id].reduce((acc, char) => acc + char.charCodeAt(0), 0) * 0.021;
+  return {
+    group,
+    puffs,
+    phases: Array.from({ length: puffs.length }, (_, index) => phaseSeed + index * 0.91),
+    life: cloud.life,
+    radius: cloud.radius,
+  };
+}
+
+function disposeSmokeCloudVisual(visual: SmokeCloudVisual) {
+  scene.remove(visual.group);
+  for (const puff of visual.puffs) {
+    disposeMesh(puff);
+  }
+}
+
+function clearSmokeCloudVisuals() {
+  for (const visual of smokeCloudVisuals.values()) {
+    disposeSmokeCloudVisual(visual);
+  }
+  smokeCloudVisuals.clear();
+}
+
+function updateSmokeCloudStyle(visual: SmokeCloudVisual, now: number) {
+  const lifeT = clamp(visual.life / SMOKE_GRENADE_CONFIG.duration, 0, 1);
+  const spreadT = clamp(visual.radius / SMOKE_GRENADE_CONFIG.maxRadius, 0, 1);
+  for (let i = 0; i < visual.puffs.length; i += 1) {
+    const puff = visual.puffs[i];
+    const alpha = (puff.userData.alpha as number | undefined) ?? 1;
+    const phaseOffset = (puff.userData.phaseOffset as number | undefined) ?? 0;
+    const pulse = 0.97 + 0.13 * Math.sin(now * 0.00145 + visual.phases[i] + phaseOffset);
+    const drift = Math.sin(now * 0.00062 + visual.phases[i] + phaseOffset) * 0.014;
+    const basePos = puff.userData.basePos as THREE.Vector3;
+    puff.position.set(basePos.x + drift, basePos.y + drift * 0.85, basePos.z - drift * 0.45);
+    puff.scale.setScalar(pulse);
+    const material = puff.material as THREE.MeshBasicMaterial;
+    material.opacity = alpha * (0.2 + 0.36 * spreadT) * (0.5 + 0.5 * lifeT);
+  }
+}
+
+function updateSmokeCloudVisuals(clouds: SmokeCloudSnapshot[]) {
+  const seen = new Set<string>();
+  const now = performance.now();
+  for (const cloud of clouds) {
+    seen.add(cloud.id);
+    let visual = smokeCloudVisuals.get(cloud.id);
+    if (!visual) {
+      visual = createSmokeCloudVisual(cloud);
+      smokeCloudVisuals.set(cloud.id, visual);
+    }
+    visual.life = cloud.life;
+    visual.radius = cloud.radius;
+    visual.group.position.set(cloud.pos[0], cloud.pos[1], cloud.pos[2]);
+    const scale = Math.max(cloud.radius, 0.001);
+    visual.group.scale.set(scale, Math.max(0.62, scale * 0.72), scale);
+    updateSmokeCloudStyle(visual, now);
+  }
+
+  for (const [id, visual] of smokeCloudVisuals.entries()) {
+    if (!seen.has(id)) {
+      disposeSmokeCloudVisual(visual);
+      smokeCloudVisuals.delete(id);
+    }
+  }
+}
+
+function animateSmokeCloudVisuals(now: number) {
+  for (const visual of smokeCloudVisuals.values()) {
+    updateSmokeCloudStyle(visual, now);
   }
 }
 
@@ -2611,9 +3873,14 @@ function updateHud(snapshot: ServerSnapshot) {
     : `A ${snapshot.round.scores.A} (${snapshot.round.sideByTeam.A}) - (${snapshot.round.sideByTeam.B}) ${snapshot.round.scores.B} B`;
 
   hudHp.textContent = `HP ${localState.hp}`;
-  const ammoValue = localState.weapon === 'pistol' ? localState.ammo.pistol : localState.ammo.primary;
+  const ammoValue =
+    localState.weapon === 'pistol'
+      ? localState.ammo.pistol
+      : localState.weapon === 'primary'
+      ? localState.ammo.primary
+      : '-';
   hudAmmo.textContent = `Ammo ${ammoValue}`;
-  hudGrenades.textContent = `Grenade ${localState.grenades}`;
+  hudGrenades.textContent = `HE ${localState.explosiveGrenades} | Grenade ${localState.grenades} | Smoke ${localState.smokeGrenades}`;
   hudKills.textContent = `Kills ${localState.kills}`;
   hudDeaths.textContent = `Deaths ${localState.deaths}`;
   if (phase === 'post' && snapshot.round.postReason === 'draw') {
@@ -2656,9 +3923,13 @@ function handleEvents(events: ServerSnapshot['events']) {
     }
     if (event.type === 'shot') {
       spawnTracer(event.origin, event.dir, event.distance);
+      playShotSound(event.origin, event.weapon, event.shooterId === clientId);
     }
     if (event.type === 'grenade_explode') {
-      spawnGrenadeExplosion(event.pos);
+      playGrenadeExplosionSound(event.pos, event.kind, event.ownerId === clientId);
+      if (event.kind === 'explosive') {
+        spawnGrenadeExplosion(event.pos);
+      }
     }
     if (event.type === 'match_over') {
       if (event.winners.length === 1) {
@@ -3113,7 +4384,11 @@ function updateScope(forceOff = false) {
   if (forceOff) {
     scopeHeld = false;
   }
-  if (currentWeapon !== 'primary' || localState.primary !== 'sniper') {
+  const scopeWeapon =
+    currentWeapon === 'primary' && (localState.primary === 'sniper' || localState.primary === 'aug')
+      ? localState.primary
+      : null;
+  if (!scopeWeapon) {
     scopeHeld = false;
   }
   const allow =
@@ -3122,18 +4397,21 @@ function updateScope(forceOff = false) {
     !inEditor &&
     localState.alive &&
     currentWeapon === 'primary' &&
-    localState.primary === 'sniper' &&
+    scopeWeapon !== null &&
     latestSnapshot?.round.phase === 'live';
   let targetFov = BASE_FOV;
   if (allow) {
-    targetFov = localState.primary === 'sniper' ? SNIPER_SCOPE_FOV : RIFLE_SCOPE_FOV;
+    targetFov = scopeWeapon === 'sniper' ? SNIPER_SCOPE_FOV : AUG_SCOPE_FOV;
   }
   if (Math.abs(camera.fov - targetFov) > 0.1) {
     camera.fov = targetFov;
     camera.updateProjectionMatrix();
   }
   scoped = allow;
-  scopeOverlay.classList.toggle('visible', scoped && localState.primary === 'sniper');
+  scopeOverlay.classList.toggle('visible', scoped);
+  scopeOverlay.classList.toggle('aug-scope', scoped && scopeWeapon === 'aug');
+  scopeOverlay.classList.toggle('sniper-scope', scoped && scopeWeapon === 'sniper');
+  crosshair.classList.toggle('hidden', scoped);
 }
 
 function isSniperScopeActive(): boolean {
@@ -3155,7 +4433,7 @@ function applyRecoil(nowSeconds: number) {
   if (!localState.alive || latestSnapshot?.round.phase !== 'live') {
     return;
   }
-  if (currentWeapon === 'grenade') {
+  if (currentWeapon === 'explosive' || currentWeapon === 'grenade' || currentWeapon === 'smoke') {
     return;
   }
 
@@ -3216,7 +4494,7 @@ function sendInput(dt: number) {
   }
 
   const view = getViewAngles();
-  if (localState.alive && currentWeapon !== 'grenade') {
+  if (localState.alive && currentWeapon !== 'explosive' && currentWeapon !== 'grenade' && currentWeapon !== 'smoke') {
     const weaponType = currentWeapon === 'primary' ? localState.primary : 'pistol';
     const ammo = weaponType === 'pistol' ? localState.ammo.pistol : localState.ammo.primary;
     if (ammo <= 0) {
@@ -3314,9 +4592,15 @@ function render() {
         ? localState.primary
         : currentWeapon === 'pistol'
         ? 'pistol'
+        : currentWeapon === 'explosive' && localState.explosiveGrenades > 0
+        ? 'explosive'
+        : currentWeapon === 'grenade' && localState.grenades > 0
+        ? 'grenade'
+        : currentWeapon === 'smoke' && localState.smokeGrenades > 0
+        ? 'smoke'
         : null
       : null;
-  const showWeapon = Boolean(activeViewWeapon && FIRST_PERSON_WEAPONS[activeViewWeapon]);
+  const showWeapon = Boolean(activeViewWeapon && FIRST_PERSON_WEAPONS[activeViewWeapon] && !scoped);
   viewWeaponGroup.visible = showWeapon;
   setViewWeapon(showWeapon ? activeViewWeapon : null);
   if (showWeapon) {
@@ -3332,7 +4616,10 @@ function render() {
   }
 
     updateRemotePlayers(renderTime);
+    updateMovementAudio(nowSeconds, renderTime);
     updateTracers(now);
+    animateGrenadePoolVisuals(now);
+    animateSmokeCloudVisuals(now);
     updateExplosionEffects(now);
     camera.layers.set(WORLD_LAYER);
     renderer.render(scene, camera);
@@ -3439,6 +4726,12 @@ function updateRemotePlayers(renderTime: number) {
           ? sample.primary
           : sample.weapon === 'pistol'
           ? 'pistol'
+          : sample.weapon === 'explosive'
+          ? 'explosive'
+          : sample.weapon === 'grenade'
+          ? 'grenade'
+          : sample.weapon === 'smoke'
+          ? 'smoke'
           : null;
       setHeldWeapon(parts, heldType);
       parts.weaponGroup.visible = Boolean(heldType);
